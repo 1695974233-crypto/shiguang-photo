@@ -4,6 +4,24 @@
 
 线上体验：[拾光后期](https://sk9rtqqg06hvqm0nm4sl7.apigateway-cn-beijing.volceapi.com/)
 
+## 体验邀请码
+
+打开线上网页后，可复制以下任意一个邀请码使用。邀请码可以重复使用，请勿滥用共享体验额度。
+
+```text
+98D30A0F
+SG-CE66A5FC
+SG-58574E99
+SG-3BC6FEE1
+SG-D75B324A
+SG-4E261256
+SG-42FA8935
+SG-10118200
+SG-DFA40A58
+SG-4EA4A1B8
+SG-0A2983BC
+```
+
 ## 功能
 
 - 10 种可手动选择的图片处理场景
@@ -33,7 +51,7 @@ ARK_IMAGE_MODELS=doubao-seedream-4-5-251128,doubao-seedream-4-0-250828,doubao-se
 GENERATION_ACCESS_CODES=邀请码一,邀请码二
 ```
 
-`.env.local` 已被 Git 忽略，请勿把真实 API Key 或邀请码提交到仓库。
+`.env.local` 已被 Git 忽略，请勿把真实 API Key 或非公开邀请码提交到仓库。上方邀请码是项目维护者主动公开的共享体验码。
 
 ## 验证与构建
 
@@ -52,7 +70,7 @@ npm run build:vefaas
 - 云端启动命令：`node --no-warnings --experimental-loader ./vefaas-cloudflare-loader.mjs ./vefaas-server.mjs`
 - 服务端口：`3000`
 
-方舟 API Key、模型配置和邀请码应通过 veFaaS 环境变量设置，不应写入仓库。
+方舟 API Key、模型配置和服务端邀请码列表应通过 veFaaS 环境变量设置；除主动公开的共享体验码外，不应把私密配置写入仓库。
 
 ## Skill 实现与第三方内容
 
