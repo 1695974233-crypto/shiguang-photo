@@ -1,0 +1,57 @@
+{
+  "createdAt": "2026-08-19T16:01:10.503Z",
+  "model": "doubao-seedream-4-5-251128",
+  "results": [
+    {
+      "slug": "abstract-editorial",
+      "ok": true,
+      "elapsedMs": 24481,
+      "output": "public/previews/abstract-editorial.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "gathered-scenes",
+      "ok": true,
+      "elapsedMs": 35447,
+      "output": "public/previews/gathered-scenes.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "scene-distillation",
+      "ok": true,
+      "elapsedMs": 67686,
+      "output": "public/previews/scene-distillation.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "surreal-pop",
+      "ok": true,
+      "elapsedMs": 30918,
+      "output": "public/previews/surreal-pop.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "doodle-life",
+      "ok": true,
+      "elapsedMs": 28525,
+      "output": "public/previews/doodle-life.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "muted-zine",
+      "ok": true,
+      "elapsedMs": 37867,
+      "output": "public/previews/muted-zine.jpg",
+      "estimatedCostCny": 0.25
+    },
+    {
+      "slug": "portrait-relight",
+      "ok": true,
+      "elapsedMs": 16448,
+      "output": "public/previews/portrait-relight.jpg",
+      "estimatedCostCny": 0.25
+    }
+  ],
+  "successfulCalls": 7,
+  "estimatedCostCny": 1.75
+}
