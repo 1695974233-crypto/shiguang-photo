@@ -33,4 +33,6 @@ test("renders all ten selectable scenes", async () => {
   const html = await response.text();
   const sceneButtons = html.match(/class="scene-button(?: selected)?"/g) ?? [];
   assert.equal(sceneButtons.length, 10);
+  assert.match(html, /拾景纸刊/);
+  assert.doesNotMatch(html, /层叠撕纸刊/);
 });

@@ -1,6 +1,8 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
+import { applyPortraitRelight, createAnalysisThumbnail, PortraitRelightSpec } from "./portrait-relight";
+import { applyRealScenePaperComposite, RealScenePaperCompositeSpec } from "./real-scene-paper-composite";
 
 type Scene = {
   id: string;
@@ -12,6 +14,7 @@ type Scene = {
   previewPosition?: string;
   credit: string;
   creditUrl?: string;
+  previewNote?: string;
 };
 
 type SkillResult = {
@@ -23,16 +26,16 @@ type SkillResult = {
 };
 
 const scenes: Scene[] = [
-  { id: "minimal-zine", name: "极简 Zine", eyebrow: "大量留白 · 纸感印刷", description: "把照片收进安静的独立杂志版面，用一处醒目的颜色建立视觉重心。", fidelity: "适度保留原照", preview: "/previews/minimal-zine.jpeg", credit: "作者 README 示例 · LiamGvchi · MIT", creditUrl: "https://github.com/LiamGvchi/gc-minimal-zine-poster" },
+  { id: "minimal-zine", name: "极简 Zine", eyebrow: "完整摄影 · 非具象印刷场", description: "保留一块完整、自然的照片材料，让独立抽象印刷、裸纸留白和一种结构色共同完成版面。", fidelity: "完整保留摄影锚点", preview: "/previews/minimal-zine.jpeg", credit: "独立功能实现 · 案例使用你的建筑照片", previewNote: "照片始终保持为一块未滤镜化的真实材料；插画只在周围纸面独立创作，不再把天空、植物或建筑局部压成色块。" },
   { id: "abstract-editorial", name: "结构记忆编辑", eyebrow: "真照 + 抽象记忆", description: "忠实保留原照片，再从画面关系中提炼一块克制的抽象视觉面板。", fidelity: "高度保留原照", preview: "/previews/abstract-editorial.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
-  { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "实景拼贴 · 手撕纸边", description: "让真实照片成为锚点，用纸张、结构色和简化插画延伸现场。", fidelity: "高度保留原照", preview: "/previews/gathered-scenes.jpg", credit: "开源工作流适配 · Zeejay0 · MIT", creditUrl: "https://github.com/Zeejay0/gathered-scenes-zine-skill" },
-  { id: "scene-distillation", name: "影像蒸馏", eyebrow: "提取情绪 · 重新创作", description: "不复制原照片，而是把场景中的关系与情绪蒸馏成独立插画。", fidelity: "允许大幅创作", preview: "/previews/scene-distillation.jpg", credit: "开源工作流适配 · Zeejay0 · MIT", creditUrl: "https://github.com/Zeejay0/gathered-scenes-zine-skill" },
+  { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "真实摄影 · 自适应纸面", description: "读取每张照片的主体、方向与色彩，让真实现场自然过渡为留白充足的纸上图形。", fidelity: "保留关键现场关系", preview: "/previews/gathered-scenes.jpg", credit: "独立功能实现 · 未使用未授权第三方内容", previewNote: "系统会从当前照片重新决定摄影保留区、纸上图形、撕纸交界和结构色；展示图只说明视觉方向，不作为生成模板。" },
+  { id: "scene-distillation", name: "场景抽象", eyebrow: "提取关系 · 重新创作", description: "提取照片中的主体关系、方向和情绪，重新组织成一张独立纸面插画。", fidelity: "允许大幅创作", preview: "/previews/scene-distillation.jpg", credit: "独立功能实现 · 不使用第三方 Skill 内容" },
   { id: "photo-relic", name: "照片遗迹", eyebrow: "旧相纸 · 时间痕迹", description: "把照片处理成被时间保存过的纸上遗迹，褪色、磨损而克制。", fidelity: "保留主体关系", preview: "/previews/photo-relic.png", credit: "作者 README 示例 · wnby · MIT", creditUrl: "https://github.com/wnby/photo-relic-editorial" },
   { id: "surreal-pop", name: "单一异物波普", eyebrow: "黑白现实 · 巨物拼贴", description: "以真实照片为锚点，只加入一个与场景有关的不可能巨物。", fidelity: "保留主体，大幅创作", preview: "/previews/surreal-pop.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
   { id: "doodle-life", name: "微型人物涂鸦", eyebrow: "真实物件 · 原始黑线", description: "保留一个真实核心物件，让微型人物围绕它完成一个小故事。", fidelity: "保留核心物件", preview: "/previews/doodle-life.jpg", credit: "独立功能实现 · 不使用品牌资产" },
   { id: "muted-zine", name: "褪色纸页", eyebrow: "柔和色调 · 诗意纸刊", description: "降低饱和度与对比度，让画面变成温柔、安静的纸上记录。", fidelity: "适度保留原照", preview: "/previews/muted-zine.jpg", credit: "独立功能实现 · 案例使用你的玫瑰照片" },
   { id: "ink-wash", name: "当代水墨转译", eyebrow: "淡墨留白 · 编辑海报", description: "依据照片结构选择纸色和墨法，而不是套一层水彩滤镜。", fidelity: "保留结构，重新绘制", preview: "/previews/ink-wash.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
-  { id: "portrait-relight", name: "自然人像补光", eyebrow: "曝光修复 · 不重绘五官", description: "分析人物与背景曝光差，只调整光线、肤色和阴影细节。", fidelity: "完整保留人物", preview: "/previews/portrait-relight-safe.jpg", previewPosition: "center", credit: "独立功能实现 · 无生成式换脸" },
+  { id: "portrait-relight", name: "自然人像补光", eyebrow: "曝光修复 · 不重绘五官", description: "分析人物与背景曝光差，只调整光线、肤色和阴影细节。", fidelity: "完整保留人物", preview: "/previews/portrait-relight-safe.jpg", previewPosition: "center", credit: "像素级后期 · 不调用生图模型", previewNote: "实际处理只在你的原图像素上局部补光，保持原构图，不重画人物和背景。" },
 ];
 
 const textPositions = ["AI 自动", "正上方", "正下方", "左上角", "右上角", "左下角", "右下角"];
@@ -59,6 +62,7 @@ export default function Home() {
   const [status, setStatus] = useState("请先上传一张照片，再选择场景。生成按钮会在两项都完成后点亮。");
   const [history, setHistory] = useState<string[]>([]);
   const [skillResult, setSkillResult] = useState<SkillResult | null>(null);
+  const [qualityCorrection, setQualityCorrection] = useState("");
 
   const activePreview = previewScene ?? selectedScene ?? scenes[2];
   const canGenerate = Boolean(source && selectedScene && accessCode.trim() && !isGenerating);
@@ -86,6 +90,7 @@ export default function Home() {
       setFileName(file.name);
       setResult(null);
       setSkillResult(null);
+      setQualityCorrection("");
       setError("");
       setStatus("照片已就位。现在选择一个你喜欢的场景。");
     };
@@ -96,6 +101,7 @@ export default function Home() {
     setSelectedScene(scene);
     setPreviewScene(scene);
     setError("");
+    setQualityCorrection("");
     setStatus(source ? `已选择「${scene.name}」。可以补充文字或直接生成。` : `已选择「${scene.name}」。上传照片后即可生成。`);
   }
 
@@ -106,20 +112,27 @@ export default function Home() {
     }
     setIsGenerating(true);
     setError("");
-    setStatus(mode === "refine" ? "Skill 正在阅读上一版作品并编译本次修改…" : "Skill 正在阅读照片、选择构图并编译专属方案，然后再生成图片…");
+    const inputImage = mode === "refine" && result ? result : source;
+    const isPixelRelight = selectedScene.id === "portrait-relight";
+    setStatus(isPixelRelight
+      ? "正在定位人物并进行像素级补光，原照片不会交给生图模型重绘…"
+      : mode === "refine" ? "Skill 正在阅读上一版作品并编译本次修改…" : "Skill 正在阅读照片、选择构图并编译专属方案，然后再生成图片…");
 
     try {
+      const analysisImage = await createAnalysisThumbnail(inputImage);
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image: mode === "refine" && result ? result : source,
+          image: inputImage,
+          analysisImage,
           sceneId: selectedScene.id,
           accessCode: accessCode.trim(),
           instruction: mode === "refine" ? refinement : instruction,
           textPosition,
           ratio,
           mode,
+          qualityCorrection: mode === "new" ? qualityCorrection : "",
         }),
       });
       const data = await response.json() as {
@@ -127,20 +140,42 @@ export default function Home() {
         error?: string;
         modelLabel?: string;
         fallbackUsed?: boolean;
+        autoRetried?: boolean;
+        qualityWarning?: string[];
+        qualityCorrection?: string;
+        compositeWarning?: string;
         skill?: { name: string; implementation: string; sourceUrl?: string };
         skillAnalysis?: string;
         skillRecipe?: string;
+        localEdit?: PortraitRelightSpec;
+        localComposite?: RealScenePaperCompositeSpec;
       };
-      if (!response.ok || !data.image) throw new Error(data.error || "生成失败，请稍后重试。");
-      setResult(data.image);
+      if (!response.ok || (!data.image && !data.localEdit)) throw new Error(data.error || "生成失败，请稍后重试。");
+      const nextImage = data.localEdit
+        ? await applyPortraitRelight(inputImage, data.localEdit)
+        : data.localComposite
+          ? await applyRealScenePaperComposite(inputImage, data.image!, data.localComposite)
+          : data.image!;
+      setResult(nextImage);
+      setQualityCorrection(data.qualityCorrection || "");
       if (data.skill && data.skillAnalysis && data.skillRecipe) {
         setSkillResult({ ...data.skill, analysis: data.skillAnalysis, recipe: data.skillRecipe });
       }
       if (mode === "refine" && refinement.trim()) setHistory((items) => [...items, refinement.trim()]);
       const modelStatus = data.modelLabel
-        ? ` · ${data.modelLabel}${data.fallbackUsed ? "（自动切换）" : ""}`
+        ? ` · ${data.modelLabel}${data.fallbackUsed ? "（自动切换）" : ""}${data.autoRetried ? "（已自动纠偏一次）" : ""}`
         : "";
-      setStatus(`作品已生成${modelStatus}。满意就下载，不满意可以继续说怎么改。`);
+      setStatus(data.localEdit
+        ? "像素级补光已完成：保留原始人物、五官、手势和背景，没有调用生图模型。"
+        : data.localComposite?.layout === "scene-fragment"
+          ? `拾景纸刊已完成${modelStatus}：主体与可靠前景使用原图真实像素，周围由同场景纸上转译衔接。`
+        : data.localComposite
+          ? `结构记忆编辑已完成${modelStatus}：摄影区使用原图真实像素，抽象区只提炼画面关系。`
+        : data.compositeWarning
+          ? `作品已生成${modelStatus}，但${data.compositeWarning}`
+        : data.qualityWarning?.length
+            ? `作品已生成${modelStatus}，质量检查发现：${data.qualityWarning.slice(0, 2).join("；")}。点击“再生成一次”会自动带上纠偏要求。`
+            : `作品已生成${modelStatus}。满意就下载，不满意可以继续说怎么改。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "生成失败，请稍后重试。");
       setStatus("这次没有生成成功，你的照片和设置都还保留着。");
@@ -231,7 +266,7 @@ export default function Home() {
             <h2>{activePreview.name}</h2>
             <p>{activePreview.description}</p>
             <small>{activePreview.fidelity}</small>
-            <span className="preview-note">实际构图会根据你上传照片的主体与比例变化，但应保持同一视觉语言。</span>
+            <span className="preview-note">{activePreview.previewNote ?? "实际构图会根据你上传照片的主体与比例变化，但应保持同一视觉语言。"}</span>
             {activePreview.creditUrl
               ? <a className="preview-credit" href={activePreview.creditUrl} target="_blank" rel="noreferrer">{activePreview.credit}</a>
               : <span className="preview-credit">{activePreview.credit}</span>}
@@ -288,7 +323,7 @@ export default function Home() {
         <div className="generation-bar">
           <div>
             <strong>{selectedScene?.name ?? "尚未选择场景"}</strong>
-            <span>{selectedRatio} · {textPosition}</span>
+            <span>{selectedScene?.id === "portrait-relight" ? "保持原图比例 · 像素级后期" : `${selectedRatio} · ${textPosition}`}</span>
           </div>
           <button className="generate-button" type="button" disabled={!canGenerate} onClick={() => void requestGeneration("new")}>
             {isGenerating ? "生成中…" : "生成图片"}
@@ -303,7 +338,7 @@ export default function Home() {
             <div className="result-heading">
               <div><span>YOUR RESULT</span><h2>这一张，已经替你完成。</h2></div>
               <div className="result-actions">
-                <a className="download-button" href={result} download={`拾光后期-${selectedScene?.id ?? "result"}.png`}>下载图片</a>
+                <a className="download-button" href={result} download={`拾光后期-${selectedScene?.id ?? "result"}.jpg`}>下载图片</a>
                 <button type="button" onClick={() => void requestGeneration("new")}>再生成一次</button>
               </div>
             </div>
