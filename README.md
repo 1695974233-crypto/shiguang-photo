@@ -19,7 +19,7 @@
 - 支持横版、竖版、方形与原图比例
 - 支持海报文字与固定文字位置
 - 支持基于上一版结果继续修改
-- 默认 Seedream 4.5，失败时依次切换 4.0 和 5.0 Lite
+- 常规场景默认 Seedream 4.5；“拾景纸刊”优先使用 Qwen Image 3.0 Pro，未配置百炼密钥时使用 Seedream 5.0 Lite，再依次回退 4.5 和 4.0
 - 可配置多个可重复使用的邀请码，校验通过后才会调用付费模型
 
 ## 本地运行
@@ -38,6 +38,9 @@ npm run dev
 ARK_API_KEY=你的方舟APIKey
 ARK_SKILL_MODEL=doubao-seed-2-0-lite-260428
 ARK_IMAGE_MODELS=doubao-seedream-4-5-251128,doubao-seedream-4-0-250828,doubao-seedream-5-0-lite-260128
+ARK_GATHERED_IMAGE_MODELS=doubao-seedream-5-0-lite-260128,doubao-seedream-4-5-251128,doubao-seedream-4-0-250828
+DASHSCOPE_API_KEY=你的阿里云百炼APIKey
+DASHSCOPE_GATHERED_IMAGE_MODEL=qwen-image-3.0-pro
 GENERATION_ACCESS_CODES=邀请码一,邀请码二
 ```
 

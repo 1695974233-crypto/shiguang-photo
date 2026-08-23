@@ -18,11 +18,15 @@ test("gathered scenes generates and reviews one complete paper-collage poster", 
   assert.match(route, /保留原照片，把它做成一张纸感拼接海报并直接输出完整成图/);
   assert.match(route, /模型一次性生成并直接输出完整纸感拼接海报/);
   assert.match(route, /ARK_GATHERED_IMAGE_MODELS/);
+  assert.match(route, /DASHSCOPE_API_KEY/);
+  assert.match(route, /qwen-image-3\.0-pro/);
+  assert.match(route, /generateQwenImageCandidate/);
+  assert.match(route, /provider: "dashscope"/);
   assert.match(route, /保留原图里的人物\/物体主体、画面构图和真实原生色彩/);
   assert.match(route, /简化杂乱背景，改成干净柔和的大块色块/);
   assert.match(route, /低克制度高饱和结构配色/);
   assert.match(route, /杜绝廉价贴纸、模板网红感/);
-  assert.match(route, /doubao-seedream-4-5-251128.*doubao-seedream-4-0-250828.*doubao-seedream-5-0-lite-260128/);
+  assert.match(route, /doubao-seedream-5-0-lite-260128.*doubao-seedream-4-5-251128.*doubao-seedream-4-0-250828/);
   assert.match(route, /第二张图是用户最终会看到的候选成图/);
   assert.match(route, /插画场实际着墨明显不足15%/);
   assert.match(route, /微文字放在额外纸片、标签或卡片上/);

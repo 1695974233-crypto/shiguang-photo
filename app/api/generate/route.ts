@@ -78,6 +78,13 @@ type ArkResponse = {
   usage?: unknown;
 };
 
+type DashScopeImageResponse = {
+  output?: { choices?: Array<{ message?: { content?: Array<{ image?: string }> } }> };
+  usage?: unknown;
+  code?: string;
+  message?: string;
+};
+
 type CompilerResponse = {
   choices?: Array<{ message?: { content?: string } }>;
   error?: { message?: string };
@@ -319,6 +326,35 @@ async function generateImageCandidate(apiKey: string, modelId: string, prompt: s
   return { image, usage: data.usage };
 }
 
+async function generateQwenImageCandidate(apiKey: string, modelId: string, prompt: string, inputImage: string, timeoutMs: number) {
+  const endpoint = process.env.DASHSCOPE_IMAGE_ENDPOINT?.trim()
+    || "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      input: {
+        messages: [{ role: "user", content: [{ image: inputImage }, { text: prompt }] }],
+      },
+      parameters: {
+        prompt_extend: true,
+        prompt_extend_mode: "direct",
+        enable_thinking: true,
+        n: 1,
+        watermark: false,
+        negative_prompt: "重画或插画化真实摄影主体，改变主体身份、数量、姿态、比例或透视，矩形照片卡，均匀白边，额外文字纸片，标签，样机，廉价贴纸，通用装饰",
+      },
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await response.json() as DashScopeImageResponse;
+  if (!response.ok) throw new Error(data.message || data.code || `阿里云百炼调用失败（${response.status}）。`);
+  const image = data.output?.choices?.[0]?.message?.content?.find((item) => item.image)?.image;
+  if (!image) throw new Error("Qwen Image 没有返回图片。");
+  return { image, usage: data.usage };
+}
+
 async function previewStyleReference(fileName: string) {
   const candidates = [
     path.join(process.cwd(), "public", "previews", fileName),
@@ -447,17 +483,25 @@ export async function POST(request: Request) {
     ?.split(",")
     .map((item) => item.trim())
     .filter(Boolean) ?? [];
-  const gatheredDefaultIds = ["doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828", "doubao-seedream-5-0-lite-260128"];
+  const gatheredDefaultIds = ["doubao-seedream-5-0-lite-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"];
   const orderedIds = [...new Set([
     ...(adapter.id === "gathered-scenes" ? (gatheredConfiguredIds.length ? gatheredConfiguredIds : gatheredDefaultIds) : configuredIds),
     ...(adapter.id === "gathered-scenes" ? [] : legacyPreferredId ? [legacyPreferredId] : []),
     ...configuredIds,
     ...defaultModelChain.map((model) => model.id),
   ])];
-  const models = orderedIds.map((id) => ({
+  const dashscopeKey = process.env.DASHSCOPE_API_KEY?.trim();
+  const qwenImageModel = process.env.DASHSCOPE_GATHERED_IMAGE_MODEL?.trim() || "qwen-image-3.0-pro";
+  const models = [
+    ...(adapter.id === "gathered-scenes" && dashscopeKey
+      ? [{ id: qwenImageModel, label: "Qwen Image 3.0 Pro", provider: "dashscope" as const }]
+      : []),
+    ...orderedIds.map((id) => ({
     id,
     label: defaultModelChain.find((model) => model.id === id)?.label ?? id,
-  }));
+      provider: "ark" as const,
+    })),
+  ];
 
   let lastError = "模型暂时无法生成图片。";
   const generationDeadline = Date.now() + 210_000;
@@ -474,12 +518,12 @@ export async function POST(request: Request) {
           ? [await previewStyleReference("abstract-editorial.jpg")].filter((value): value is string => Boolean(value))
           : [];
       const imageInputs = [body.image, ...styleReferences];
-      let candidate = await generateImageCandidate(
-        apiKey,
-        model.id,
+      const generateWithSelectedModel = (candidatePrompt: string, timeoutMs: number) => model.provider === "dashscope"
+        ? generateQwenImageCandidate(dashscopeKey!, model.id, candidatePrompt, body.analysisImage || body.image!, timeoutMs)
+        : generateImageCandidate(apiKey, model.id, candidatePrompt, imageInputs, timeoutMs);
+      let candidate = await generateWithSelectedModel(
         prompt,
-        imageInputs,
-        Math.min(index === 0 ? 100_000 : 80_000, remainingMs),
+        Math.min(index === 0 ? 120_000 : 80_000, remainingMs),
       );
       const usesLocalComposite = adapter.id === "abstract-editorial";
       let review: QualityReview | undefined;
@@ -495,7 +539,9 @@ export async function POST(request: Request) {
         if (retryBudgetMs >= 35_000) {
           try {
             const retryPrompt = `${prompt}\n\n自动质检判定第一次候选不合格。必须从用户原照片重新编辑，不得沿用第一次候选的版式。纠偏要求：${review.correction}`;
-            candidate = await generateImageCandidate(apiKey, model.id, retryPrompt, adapter.id === "minimal-zine" ? imageInputs : [body.image], Math.min(90_000, retryBudgetMs - 8_000));
+            candidate = model.provider === "dashscope"
+              ? await generateQwenImageCandidate(dashscopeKey!, model.id, retryPrompt, body.analysisImage || body.image!, Math.min(110_000, retryBudgetMs - 8_000))
+              : await generateImageCandidate(apiKey, model.id, retryPrompt, adapter.id === "minimal-zine" ? imageInputs : [body.image], Math.min(90_000, retryBudgetMs - 8_000));
             autoRetried = true;
             const secondReviewBudgetMs = Math.min(35_000, generationDeadline - Date.now());
             review = secondReviewBudgetMs >= 8_000
