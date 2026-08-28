@@ -37,9 +37,31 @@ export type RealScenePaperCompositeSpec = {
   chromaticBridge?: string;
   quietAreas?: string[];
   edgeForegroundSides?: EdgeForegroundSide[];
+  modelLayerStrength?: number;
 };
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
+
+export function generatedStyleOpacity(
+  source: { red: number; green: number; blue: number },
+  generated: { red: number; green: number; blue: number },
+  strength = 0.28,
+) {
+  const sourceLuminance = source.red * 0.299 + source.green * 0.587 + source.blue * 0.114;
+  const generatedLuminance = generated.red * 0.299 + generated.green * 0.587 + generated.blue * 0.114;
+  const sourceChroma = Math.max(source.red, source.green, source.blue) - Math.min(source.red, source.green, source.blue);
+  const generatedChroma = Math.max(generated.red, generated.green, generated.blue) - Math.min(generated.red, generated.green, generated.blue);
+  const luminanceGap = Math.abs(sourceLuminance - generatedLuminance);
+  const chromaGap = Math.abs(sourceChroma - generatedChroma);
+  const inventedNeutralStructure = sourceChroma >= 22
+    && generatedChroma <= sourceChroma * 0.5
+    && generatedLuminance <= sourceLuminance - 34;
+  const inventedBrightShape = generatedLuminance >= sourceLuminance + 62
+    && generatedChroma <= sourceChroma + 10;
+  if (inventedNeutralStructure || inventedBrightShape) return 0;
+  const agreement = clamp(1 - luminanceGap / 82 - chromaGap / 150, 0, 1);
+  return clamp(strength, 0, 0.42) * agreement * agreement;
+}
 
 export function normalizeBoundaryGuide(points: NormalizedPoint[] | undefined, side: PhotoEvidenceSide, fallback = 0.5) {
   const horizontal = side === "above" || side === "below";
@@ -63,6 +85,86 @@ export function normalizeBoundaryGuide(points: NormalizedPoint[] | undefined, si
   return guide;
 }
 
+export function localizedSupportAnchor(core: PhotoAnchor, support: PhotoAnchor): PhotoAnchor {
+  const coreCenterX = clamp(core.x + core.width / 2, 0, 1);
+  const coreCenterY = clamp(core.y + core.height / 2, 0, 1);
+  const supportCenterX = clamp(support.x + support.width / 2, 0, 1);
+  const supportCenterY = clamp(support.y + support.height / 2, 0, 1);
+  const deltaX = supportCenterX - coreCenterX;
+  const deltaY = supportCenterY - coreCenterY;
+  const verticalRelation = Math.abs(deltaY) >= Math.abs(deltaX);
+  const maximumWidth = clamp(core.width * 1.15, 0.2, 0.44);
+  const maximumHeight = clamp(core.height * 0.82, 0.14, 0.28);
+  let windowX = coreCenterX - maximumWidth / 2;
+  let windowY = coreCenterY - maximumHeight / 2;
+  if (verticalRelation) {
+    windowY = deltaY >= 0
+      ? core.y + core.height - maximumHeight * 0.16
+      : core.y - maximumHeight * 0.84;
+  } else {
+    windowX = deltaX >= 0
+      ? core.x + core.width - maximumWidth * 0.16
+      : core.x - maximumWidth * 0.84;
+  }
+  windowX = clamp(windowX, 0, Math.max(0, 1 - maximumWidth));
+  windowY = clamp(windowY, 0, Math.max(0, 1 - maximumHeight));
+  const supportLeft = clamp(support.x, 0, 1);
+  const supportTop = clamp(support.y, 0, 1);
+  const supportRight = clamp(support.x + support.width, 0, 1);
+  const supportBottom = clamp(support.y + support.height, 0, 1);
+  const left = Math.max(supportLeft, windowX);
+  const top = Math.max(supportTop, windowY);
+  const right = Math.min(supportRight, windowX + maximumWidth);
+  const bottom = Math.min(supportBottom, windowY + maximumHeight);
+  if (right - left < 0.06 || bottom - top < 0.06) {
+    return {
+      x: windowX,
+      y: windowY,
+      width: maximumWidth,
+      height: maximumHeight,
+      shape: support.shape ?? "organic",
+    };
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top, shape: support.shape ?? "organic" };
+}
+
+export function pointInsidePhotoAnchor(anchor: PhotoAnchor, x: number, y: number, index = 0) {
+  const radiusX = Math.max(0.001, anchor.width / 2);
+  const radiusY = Math.max(0.001, anchor.height / 2);
+  const normalizedX = (x - (anchor.x + radiusX)) / radiusX;
+  const normalizedY = (y - (anchor.y + radiusY)) / radiusY;
+  if (anchor.shape === "ellipse") return normalizedX * normalizedX + normalizedY * normalizedY <= 1.05;
+  if (anchor.shape === "flow") {
+    return Math.pow(Math.abs(normalizedX), 1.7) + Math.pow(Math.abs(normalizedY), 1.45) <= 1.08;
+  }
+  const angle = Math.atan2(normalizedY, normalizedX);
+  const irregularRadius = 1.02
+    + Math.sin(angle * 5 + index * 1.73) * 0.055
+    + Math.sin(angle * 9 - index * 0.91) * 0.025;
+  return Math.hypot(normalizedX, normalizedY) <= irregularRadius;
+}
+
+export function expandedPhotoIsland(anchors: PhotoAnchor[], fallback: PhotoAnchor): PhotoAnchor {
+  const sourceAnchors = anchors.length ? anchors : [fallback];
+  const left = Math.min(...sourceAnchors.map((anchor) => anchor.x));
+  const top = Math.min(...sourceAnchors.map((anchor) => anchor.y));
+  const right = Math.max(...sourceAnchors.map((anchor) => anchor.x + anchor.width));
+  const bottom = Math.max(...sourceAnchors.map((anchor) => anchor.y + anchor.height));
+  const unionWidth = Math.max(0.08, right - left);
+  const unionHeight = Math.max(0.08, bottom - top);
+  const width = clamp(unionWidth + clamp(unionWidth * 0.24, 0.08, 0.14), 0.4, 0.66);
+  const height = clamp(unionHeight + clamp(unionHeight * 0.2, 0.07, 0.13), 0.36, 0.6);
+  const centerX = (left + right) / 2;
+  const centerY = (top + bottom) / 2;
+  return {
+    x: clamp(centerX - width / 2, 0.025, Math.max(0.025, 0.975 - width)),
+    y: clamp(centerY - height / 2, 0.025, Math.max(0.025, 0.975 - height)),
+    width,
+    height,
+    shape: "organic",
+  };
+}
+
 function loadImage(source: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -79,8 +181,22 @@ function drawCover(context: CanvasRenderingContext2D, image: HTMLImageElement, w
   context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
 }
 
+function structuralInk(label: string | undefined) {
+  if (/绿|green/i.test(label ?? "")) return [164, 205, 38] as const;
+  if (/橙|橘|orange/i.test(label ?? "")) return [231, 84, 34] as const;
+  if (/红|red/i.test(label ?? "")) return [219, 57, 43] as const;
+  if (/蓝|blue|cobalt/i.test(label ?? "")) return [49, 82, 199] as const;
+  if (/黄|yellow/i.test(label ?? "")) return [229, 186, 30] as const;
+  if (/紫|洋红|粉|purple|magenta|pink/i.test(label ?? "")) return [187, 54, 137] as const;
+  return [218, 77, 43] as const;
+}
+
 function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, height: number) {
-  const longestSide = 1200;
+  // Work at printmaking scale: detailed enough for a fine halftone, but blurred
+  // enough that leaves, gravel and water merge into a few calm scene-derived
+  // masses. The chromatic accent is authored separately; it must never turn
+  // every green source pixel into a fluorescent background block.
+  const longestSide = 420;
   const scale = Math.min(1, longestSide / Math.max(width, height));
   const workingWidth = Math.max(1, Math.round(width * scale));
   const workingHeight = Math.max(1, Math.round(height * scale));
@@ -89,37 +205,57 @@ function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, h
   workingCanvas.height = workingHeight;
   const working = workingCanvas.getContext("2d", { willReadFrequently: true });
   if (!working) throw new Error("浏览器无法准备同场景纸面转译。");
-  working.filter = "blur(0.7px) saturate(0.84) contrast(1.02)";
+  working.filter = "blur(10px) saturate(0.76) contrast(1.04)";
   drawCover(working, image, workingWidth, workingHeight);
   working.filter = "none";
   const pixels = working.getImageData(0, 0, workingWidth, workingHeight);
-  const paper = [238, 229, 209] as const;
+  const sourcePixels = new Uint8ClampedArray(pixels.data);
+  const paper = [244, 235, 217] as const;
+  const slate = [47, 62, 65] as const;
+  const stone = [126, 126, 112] as const;
+  const olive = [128, 141, 104] as const;
   for (let offset = 0; offset < pixels.data.length; offset += 4) {
-    const red = pixels.data[offset];
-    const green = pixels.data[offset + 1];
-    const blue = pixels.data[offset + 2];
+    const red = sourcePixels[offset];
+    const green = sourcePixels[offset + 1];
+    const blue = sourcePixels[offset + 2];
     const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
-    const average = (red + green + blue) / 3;
     const chroma = Math.max(red, green, blue) - Math.min(red, green, blue);
-    const normalizedChroma = clamp(chroma / 110, 0, 1);
-    const tonalDistance = clamp(Math.abs(luminance - 142) / 142, 0, 1);
-    const structure = clamp(normalizedChroma * 0.42 + tonalDistance * 0.58, 0, 1);
-    const saturation = 0.42 + structure * 0.24;
-    const mutedRed = average + (red - average) * saturation;
-    const mutedGreen = average + (green - average) * saturation;
-    const mutedBlue = average + (blue - average) * saturation;
-    const contrast = 0.78 + structure * 0.12;
-    const compressedRed = 128 + (mutedRed - 128) * contrast;
-    const compressedGreen = 128 + (mutedGreen - 128) * contrast;
-    const compressedBlue = 128 + (mutedBlue - 128) * contrast;
-    const paperMix = 0.1 + (1 - structure) * 0.24;
     const pixelIndex = offset / 4;
     const x = pixelIndex % workingWidth;
     const y = Math.floor(pixelIndex / workingWidth);
+    const leftOffset = (y * workingWidth + Math.max(0, x - 2)) * 4;
+    const rightOffset = (y * workingWidth + Math.min(workingWidth - 1, x + 2)) * 4;
+    const topOffset = (Math.max(0, y - 2) * workingWidth + x) * 4;
+    const bottomOffset = (Math.min(workingHeight - 1, y + 2) * workingWidth + x) * 4;
+    const neighborLuminance = (sampleOffset: number) => sourcePixels[sampleOffset] * 0.299
+      + sourcePixels[sampleOffset + 1] * 0.587
+      + sourcePixels[sampleOffset + 2] * 0.114;
+    const gradient = Math.abs(neighborLuminance(leftOffset) - neighborLuminance(rightOffset))
+      + Math.abs(neighborLuminance(topOffset) - neighborLuminance(bottomOffset));
+    const darkness = clamp((158 - luminance) / 112, 0, 1);
+    const structure = clamp(gradient / 88 * 0.42 + chroma / 100 * 0.24 + darkness * 0.34, 0, 1);
+    const greenSourceShape = green >= red + 5 && green >= blue + 4 && chroma >= 13;
+    const deepSourceShape = luminance <= 112 && structure >= 0.24;
+    const middleSourceShape = !greenSourceShape && luminance <= 176 && structure >= 0.3;
+    const ink = greenSourceShape ? olive : deepSourceShape ? slate : stone;
+    // Deterministic screen-print dropout: small, irregular pinholes and dry
+    // patches, never a visible checker/grid or enlarged source pixels.
+    const hash = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + x * y * 0.0017) * 43758.5453) % 1;
+    const paperGap = hash > (greenSourceShape ? 0.91 : 0.86 + structure * 0.08);
+    const activeInk = (greenSourceShape && structure >= 0.22)
+      || deepSourceShape
+      || middleSourceShape;
+    const coverage = !activeInk || paperGap
+      ? 0
+      : greenSourceShape
+        ? 0.58 + structure * 0.16
+        : deepSourceShape
+          ? 0.62 + structure * 0.18
+          : 0.4 + structure * 0.16;
     const grain = (((x * 17 + y * 31 + x * y * 3) % 23) - 11) * 0.18;
-    pixels.data[offset] = clamp(compressedRed * (1 - paperMix) + paper[0] * paperMix + grain, 0, 255);
-    pixels.data[offset + 1] = clamp(compressedGreen * (1 - paperMix) + paper[1] * paperMix + grain, 0, 255);
-    pixels.data[offset + 2] = clamp(compressedBlue * (1 - paperMix) + paper[2] * paperMix + grain, 0, 255);
+    pixels.data[offset] = clamp(paper[0] * (1 - coverage) + ink[0] * coverage + grain, 0, 255);
+    pixels.data[offset + 1] = clamp(paper[1] * (1 - coverage) + ink[1] * coverage + grain, 0, 255);
+    pixels.data[offset + 2] = clamp(paper[2] * (1 - coverage) + ink[2] * coverage + grain, 0, 255);
     pixels.data[offset + 3] = 255;
   }
   working.putImageData(pixels, 0, 0);
@@ -130,14 +266,245 @@ function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, h
   const paperContext = paperCanvas.getContext("2d");
   if (!paperContext) throw new Error("浏览器无法放大同场景纸面转译。");
   paperContext.imageSmoothingEnabled = true;
+  paperContext.imageSmoothingQuality = "high";
   paperContext.drawImage(workingCanvas, 0, 0, width, height);
-  // Lift the print field towards warm paper. Without this veil, dark foliage
-  // becomes a heavy grey filter instead of a quiet dry-print / halftone mass.
-  paperContext.globalAlpha = 0.05;
-  paperContext.fillStyle = "#f4ead4";
-  paperContext.fillRect(0, 0, width, height);
-  paperContext.globalAlpha = 1;
   return paperCanvas;
+}
+
+function organicRelationshipPath(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  anchor: PhotoAnchor,
+  index: number,
+  expansionX = 1,
+  expansionY = expansionX,
+) {
+  const centerX = (anchor.x + anchor.width / 2) * width;
+  const centerY = (anchor.y + anchor.height / 2) * height;
+  const radiusX = anchor.width * width * 0.5 * expansionX;
+  const radiusY = anchor.height * height * 0.5 * expansionY;
+  const points = 22;
+  context.beginPath();
+  for (let point = 0; point < points; point += 1) {
+    const angle = point / points * Math.PI * 2;
+    const wobble = 1
+      + Math.sin(angle * 3 + index * 1.9) * 0.11
+      + Math.sin(angle * 7 - index * 0.8) * 0.055;
+    const directionalStretch = 1 + Math.sin(angle - 0.65) * (index === 0 ? 0.08 : 0.14);
+    const x = centerX + Math.cos(angle) * radiusX * wobble * directionalStretch;
+    const y = centerY + Math.sin(angle) * radiusY * wobble;
+    if (point === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  }
+  context.closePath();
+}
+
+function createAdaptivePhotoIslandMask(
+  width: number,
+  height: number,
+  anchors: PhotoAnchor[],
+  fallback: PhotoAnchor,
+) {
+  const analysisWidth = 420;
+  const analysisHeight = Math.max(1, Math.round(analysisWidth * height / width));
+  const seedCanvas = document.createElement("canvas");
+  seedCanvas.width = analysisWidth;
+  seedCanvas.height = analysisHeight;
+  const seed = seedCanvas.getContext("2d");
+  if (!seed) throw new Error("浏览器无法生成不规则摄影场景碎片。");
+  const sourceAnchors = anchors.length ? anchors : [fallback];
+  seed.fillStyle = "#ffffff";
+  sourceAnchors.forEach((anchor, index) => {
+    const expansionX = index === 0 ? 1.25 : 1.58;
+    const expansionY = index === 0 ? 1.3 : 1.08;
+    organicRelationshipPath(seed, analysisWidth, analysisHeight, anchor, index, expansionX, expansionY);
+    seed.fill();
+  });
+  // Bind subject and contact support into one truthful scene fragment. Rounded
+  // corridors avoid both a sticker silhouette and a bounding-box rectangle.
+  if (sourceAnchors.length > 1) {
+    const core = sourceAnchors[0];
+    const coreX = (core.x + core.width / 2) * analysisWidth;
+    const coreY = (core.y + core.height / 2) * analysisHeight;
+    seed.lineCap = "round";
+    seed.lineJoin = "round";
+    sourceAnchors.slice(1).forEach((anchor, index) => {
+      seed.beginPath();
+      seed.moveTo(coreX, coreY);
+      seed.lineTo(
+        (anchor.x + anchor.width / 2) * analysisWidth,
+        (anchor.y + anchor.height / 2) * analysisHeight,
+      );
+      seed.lineWidth = Math.max(
+        analysisWidth * Math.min(core.width, anchor.width) * 0.46,
+        18 + index * 2,
+      );
+      seed.strokeStyle = "#ffffff";
+      seed.stroke();
+    });
+  }
+  const softCanvas = document.createElement("canvas");
+  softCanvas.width = analysisWidth;
+  softCanvas.height = analysisHeight;
+  const soft = softCanvas.getContext("2d", { willReadFrequently: true });
+  if (!soft) throw new Error("浏览器无法柔化摄影场景碎片。");
+  soft.filter = "blur(9px)";
+  soft.drawImage(seedCanvas, 0, 0);
+  soft.filter = "none";
+  const pixels = soft.getImageData(0, 0, analysisWidth, analysisHeight);
+  for (let offset = 0; offset < pixels.data.length; offset += 4) {
+    const pixelIndex = offset / 4;
+    const x = pixelIndex % analysisWidth;
+    const y = Math.floor(pixelIndex / analysisWidth);
+    const organicNoise = Math.sin(x * 0.37 + y * 0.11) * 8
+      + Math.sin(x * 0.09 - y * 0.31) * 5;
+    const selected = pixels.data[offset + 3] >= 105 + organicNoise;
+    pixels.data[offset] = 255;
+    pixels.data[offset + 1] = 255;
+    pixels.data[offset + 2] = 255;
+    pixels.data[offset + 3] = selected ? 255 : 0;
+  }
+  soft.putImageData(pixels, 0, 0);
+  const fullCanvas = document.createElement("canvas");
+  fullCanvas.width = width;
+  fullCanvas.height = height;
+  const full = fullCanvas.getContext("2d");
+  if (!full) throw new Error("浏览器无法放大摄影场景碎片。");
+  full.imageSmoothingEnabled = true;
+  full.imageSmoothingQuality = "high";
+  full.drawImage(softCanvas, 0, 0, width, height);
+  return fullCanvas;
+}
+
+function drawChromaticBridge(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  anchors: PhotoAnchor[],
+  structuralHue?: string,
+) {
+  if (!anchors.length) return;
+  const core = anchors[0];
+  const support = anchors[1] ?? core;
+  const ink = structuralInk(structuralHue);
+  context.save();
+  context.strokeStyle = `rgb(${ink[0]} ${ink[1]} ${ink[2]})`;
+  context.lineWidth = clamp(Math.min(width, height) * 0.002, 2.2, 6.5);
+  context.lineCap = "round";
+  context.globalAlpha = 0.92;
+  const startX = clamp(core.x - core.width * 0.05, 0.04, 0.82) * width;
+  const startY = clamp(support.y + support.height * 0.16, 0.12, 0.82) * height;
+  const endX = clamp(core.x + core.width * 1.48, 0.58, 0.92) * width;
+  const endY = clamp(support.y + support.height * 2.05, 0.58, 0.91) * height;
+  context.beginPath();
+  context.moveTo(startX, startY);
+  context.bezierCurveTo(
+    startX - width * 0.08,
+    startY + height * 0.08,
+    endX + width * 0.04,
+    endY - height * 0.13,
+    endX,
+    endY,
+  );
+  context.stroke();
+  context.globalAlpha = 0.78;
+  context.beginPath();
+  context.ellipse(endX, endY, width * 0.045, height * 0.012, 0, 0, Math.PI * 2);
+  context.stroke();
+  context.globalAlpha = 0.55;
+  context.beginPath();
+  context.ellipse(endX, endY, width * 0.026, height * 0.006, 0, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function createSourceProtectedGeneratedLayer(
+  sourceImage: HTMLImageElement,
+  transformedImage: HTMLImageElement,
+  width: number,
+  height: number,
+  strength: number,
+) {
+  const longestSide = 1200;
+  const scale = Math.min(1, longestSide / Math.max(width, height));
+  const workingWidth = Math.max(1, Math.round(width * scale));
+  const workingHeight = Math.max(1, Math.round(height * scale));
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = workingWidth;
+  sourceCanvas.height = workingHeight;
+  const source = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const generatedCanvas = document.createElement("canvas");
+  generatedCanvas.width = workingWidth;
+  generatedCanvas.height = workingHeight;
+  const generated = generatedCanvas.getContext("2d", { willReadFrequently: true });
+  if (!source || !generated) return undefined;
+  drawCover(source, sourceImage, workingWidth, workingHeight);
+  drawCover(generated, transformedImage, workingWidth, workingHeight);
+  const sourcePixels = source.getImageData(0, 0, workingWidth, workingHeight).data;
+  const generatedPixels = generated.getImageData(0, 0, workingWidth, workingHeight);
+  for (let offset = 0; offset < generatedPixels.data.length; offset += 4) {
+    const generatedRed = generatedPixels.data[offset];
+    const generatedGreen = generatedPixels.data[offset + 1];
+    const generatedBlue = generatedPixels.data[offset + 2];
+    const generatedLuminance = generatedRed * 0.299 + generatedGreen * 0.587 + generatedBlue * 0.114;
+    const generatedChroma = Math.max(generatedRed, generatedGreen, generatedBlue) - Math.min(generatedRed, generatedGreen, generatedBlue);
+    const paperLike = generatedLuminance >= 210
+      && generatedChroma <= 34
+      && generatedRed >= generatedBlue + 2;
+    const sourceRed = sourcePixels[offset];
+    const sourceGreen = sourcePixels[offset + 1];
+    const sourceBlue = sourcePixels[offset + 2];
+    const sourceLuminance = sourceRed * 0.299 + sourceGreen * 0.587 + sourceBlue * 0.114;
+    const sourceChroma = Math.max(sourceRed, sourceGreen, sourceBlue) - Math.min(sourceRed, sourceGreen, sourceBlue);
+    // Remove only source-less paper holes from the model layer. The complete
+    // source-derived print plate underneath then restores the corresponding
+    // water, road, wall, sky or ground without introducing a new object.
+    const sourceCarriesScene = sourceLuminance < 205 || sourceChroma >= 16;
+    if (paperLike && sourceCarriesScene) {
+      generatedPixels.data[offset + 3] = 0;
+      continue;
+    }
+    const opacity = generatedStyleOpacity(
+      { red: sourceRed, green: sourceGreen, blue: sourceBlue },
+      { red: generatedRed, green: generatedGreen, blue: generatedBlue },
+      strength,
+    );
+    generatedPixels.data[offset + 3] = Math.round(255 * opacity);
+  }
+  generated.putImageData(generatedPixels, 0, 0);
+  const fullCanvas = document.createElement("canvas");
+  fullCanvas.width = width;
+  fullCanvas.height = height;
+  const full = fullCanvas.getContext("2d");
+  if (!full) return undefined;
+  full.imageSmoothingEnabled = true;
+  full.drawImage(generatedCanvas, 0, 0, width, height);
+  return fullCanvas;
+}
+
+function createTornFiberHandoff(maskCanvas: HTMLCanvasElement, width: number, height: number) {
+  const fiberCanvas = document.createElement("canvas");
+  fiberCanvas.width = width;
+  fiberCanvas.height = height;
+  const fiber = fiberCanvas.getContext("2d");
+  if (!fiber) return undefined;
+  const band = clamp(Math.round(Math.min(width, height) * 0.015), 18, 52);
+  fiber.globalAlpha = 0.52;
+  for (let step = 0; step < 21; step += 1) {
+    const angle = step / 21 * Math.PI * 2;
+    const irregularity = 0.32 + ((Math.sin(step * 2.73) + 1) / 2) * 0.68;
+    const radius = band * irregularity;
+    fiber.drawImage(maskCanvas, Math.cos(angle) * radius, Math.sin(angle) * radius);
+  }
+  fiber.globalAlpha = 1;
+  fiber.globalCompositeOperation = "destination-out";
+  fiber.drawImage(maskCanvas, 0, 0);
+  fiber.globalCompositeOperation = "source-in";
+  fiber.fillStyle = "#f5ead2";
+  fiber.fillRect(0, 0, width, height);
+  fiber.globalCompositeOperation = "source-over";
+  return fiberCanvas;
 }
 
 function createEdgeForegroundMask(
@@ -569,26 +936,26 @@ function tornPaperPath(context: CanvasRenderingContext2D, width: number, height:
   const top = window.y * height;
   const right = (window.x + window.width) * width;
   const bottom = (window.y + window.height) * height;
-  const amplitude = Math.max(5, Math.min(width, height) * (alreadyNormalized ? 0.018 : 0.013));
-  const stepsX = alreadyNormalized ? 34 : 18;
-  const stepsY = 13;
+  const amplitude = Math.max(5, Math.min(width, height) * (alreadyNormalized ? 0.009 : 0.013));
+  const stepsX = alreadyNormalized ? 26 : 18;
+  const stepsY = alreadyNormalized ? 17 : 13;
   const offset = (index: number, salt: number) => (
     Math.sin(index * 2.17 + salt) * 0.58 + Math.sin(index * 5.31 + salt * 0.7) * 0.42
   ) * amplitude;
 
   context.beginPath();
-  context.moveTo(left, top + offset(0, 1.3));
+  context.moveTo(left, top + offset(0, 1.3) * (alreadyNormalized ? 0.55 : 1));
   for (let index = 1; index <= stepsX; index += 1) {
-    context.lineTo(left + (right - left) * index / stepsX, top + offset(index, 1.3));
+    context.lineTo(left + (right - left) * index / stepsX, top + offset(index, 1.3) * (alreadyNormalized ? 0.55 : 1));
   }
   for (let index = 1; index <= stepsY; index += 1) {
-    context.lineTo(right + offset(index, 3.1), top + (bottom - top) * index / stepsY);
+    context.lineTo(right + offset(index, 3.1) * (alreadyNormalized ? 0.38 : 1), top + (bottom - top) * index / stepsY);
   }
   for (let index = stepsX - 1; index >= 0; index -= 1) {
-    context.lineTo(left + (right - left) * index / stepsX, bottom + offset(index, 4.9));
+    context.lineTo(left + (right - left) * index / stepsX, bottom + offset(index, 4.9) * (alreadyNormalized ? 1.15 : 1));
   }
   for (let index = stepsY - 1; index >= 0; index -= 1) {
-    context.lineTo(left + offset(index, 6.7), top + (bottom - top) * index / stepsY);
+    context.lineTo(left + offset(index, 6.7) * (alreadyNormalized ? 0.52 : 1), top + (bottom - top) * index / stepsY);
   }
   context.closePath();
 }
@@ -630,28 +997,23 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   if (!context) throw new Error("浏览器无法合成实景纸拼，请更新浏览器后重试。");
 
   if (spec.layout === "scene-fragment") {
-    // The uploaded scene remains the spatial truth. The model contributes only
-    // restrained print language, so hallucinated bands or camouflage fields can
-    // never replace the source geometry.
+    // The source-derived plate guarantees complete scene coverage. Qwen remains
+    // the main authored illustration layer, except where it incorrectly turns
+    // source content into blank paper; those pixels become transparent so the
+    // same source region's quiet print translation shows through.
     context.fillStyle = "#f4ead4";
     context.fillRect(0, 0, width, height);
     const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height);
     context.drawImage(paperLayer, 0, 0);
-    context.save();
     const bandScore = horizontalBandScore(transformedImage, width, height);
     const flatScore = flatPosterizationScore(transformedImage, width, height);
     const artifactScore = bandScore + flatScore;
-    context.globalAlpha = artifactScore >= 3
-      ? 0.03
-      : artifactScore >= 2
-        ? 0.06
-        : artifactScore >= 1
-          ? 0.1
-          : spec.subjectMasks?.length
-            ? 0.16
-            : 0.12;
-    drawCover(context, transformedImage, width, height);
-    context.restore();
+    const requestedStrength = clamp(spec.modelLayerStrength ?? 0.24, 0, 0.42);
+    const artifactMultiplier = artifactScore >= 3 ? 0.32 : artifactScore >= 2 ? 0.5 : artifactScore >= 1 ? 0.72 : 1;
+    const protectedGenerated = requestedStrength > 0.01
+      ? createSourceProtectedGeneratedLayer(sourceImage, transformedImage, width, height, requestedStrength * artifactMultiplier)
+      : undefined;
+    if (protectedGenerated) context.drawImage(protectedGenerated, 0, 0);
   } else {
     drawCover(context, transformedImage, width, height);
   }
@@ -670,12 +1032,27 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   maskCanvas.height = height;
   const mask = maskCanvas.getContext("2d");
   if (!mask) throw new Error("浏览器无法准备摄影锚点遮罩。");
-  const anchors = spec.photoAnchors?.length
+  // The material handoff is not the same thing as the subject cutout. Keep a
+  // separate mask for the relationship-domain seam before semantic masks add
+  // the duck/person/object itself. Otherwise the paper fibre becomes a sticker
+  // outline around every body part.
+  const handoffMaskCanvas = document.createElement("canvas");
+  handoffMaskCanvas.width = width;
+  handoffMaskCanvas.height = height;
+  const handoffMask = handoffMaskCanvas.getContext("2d");
+  if (!handoffMask) throw new Error("浏览器无法准备摄影与插画的材料交界。");
+  const plannedAnchors = spec.photoAnchors?.length
     ? spec.photoAnchors.slice(0, 5)
     : [{ ...normalizedPhotoWindow(photoWindow, spec.anchorMode), shape: "organic" as const }];
+  const anchors = plannedAnchors.map((anchor, index) => index === 0
+    ? anchor
+    : localizedSupportAnchor(plannedAnchors[0], anchor));
   const usesRelationshipRegion = spec.layout === "scene-fragment"
-    && (spec.photoEvidenceType === "relational-region" || spec.photoEvidenceType === "continuous-band");
+    && spec.photoEvidenceType === "continuous-band"
+    && spec.focusMode === "scene-band"
+    && (spec.boundaryGuide?.length ?? 0) >= 2;
   let hasGuidedRegion = false;
+  let hasLocalHandoffRegion = false;
   if (usesRelationshipRegion) {
     const side = spec.photoEvidenceSide ?? "below";
     const fallback = side === "above"
@@ -688,9 +1065,21 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     mask.fillStyle = "#ffffff";
     guidedTornPaperPath(mask, sourceImage, width, height, spec.boundaryGuide, side, fallback);
     mask.fill();
+    handoffMask.drawImage(maskCanvas, 0, 0);
     hasGuidedRegion = true;
   }
-  if (spec.subjectMasks?.length && spec.layout === "scene-fragment") {
+  // Gathered Scenes keeps the subject inside a larger piece of truthful
+  // photography. The torn contour follows the fused subject/contact relation,
+  // not the semantic silhouette and not the relation's rectangular bounds.
+  const usesPhotoPaperIsland = spec.layout === "scene-fragment" && !usesRelationshipRegion;
+  if (usesPhotoPaperIsland) {
+    const fallbackIsland = { ...normalizedPhotoWindow(photoWindow, spec.anchorMode), shape: "organic" as const };
+    const adaptiveIsland = createAdaptivePhotoIslandMask(width, height, anchors, fallbackIsland);
+    handoffMask.drawImage(adaptiveIsland, 0, 0);
+    mask.drawImage(handoffMaskCanvas, 0, 0);
+    hasLocalHandoffRegion = true;
+  }
+  if (spec.subjectMasks?.length && spec.layout === "scene-fragment" && !usesPhotoPaperIsland) {
     const maskImages = await Promise.all(spec.subjectMasks.slice(0, 5).map(loadImage));
     const analysisWidth = 320;
     const analysisCanvas = document.createElement("canvas");
@@ -712,6 +1101,7 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
       confidence: number;
       coverage: Uint8Array;
       edgeTouches: number;
+      anchorIndices: number[];
     };
     const candidates: MaskCandidate[] = [];
     maskImages.forEach((image, index) => {
@@ -789,7 +1179,14 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
           - Math.abs(area - targetPhotoShare) * 1.05
           - oversizedPenalty
           - borderPenalty;
-        const candidate = { image, invert, score: candidateScore, area, confidence, coverage, edgeTouches };
+        const anchorIndices = anchorRecall
+          .map((recall, anchorIndex) => ({ recall, anchorIndex }))
+          .filter(({ recall }) => recall >= 0.12)
+          .map(({ anchorIndex }) => anchorIndex);
+        if (!anchorIndices.length && anchorRecall.length) {
+          anchorIndices.push(anchorRecall.indexOf(Math.max(...anchorRecall)));
+        }
+        const candidate = { image, invert, score: candidateScore, area, confidence, coverage, edgeTouches, anchorIndices };
         if (!imageBest || candidateScore > imageBest.score) imageBest = candidate;
       });
       if (imageBest) candidates.push(imageBest);
@@ -836,19 +1233,40 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
       rawCanvas.height = height;
       const raw = rawCanvas.getContext("2d", { willReadFrequently: true });
       if (!raw) throw new Error("浏览器无法读取主体遮罩。");
-      for (const chosen of selected) {
+      for (const [selectedIndex, chosen] of selected.entries()) {
         raw.clearRect(0, 0, width, height);
         drawCover(raw, chosen.image, width, height);
         const maskPixels = raw.getImageData(0, 0, width, height);
+        // The highest-ranked mask is the real core subject and already has a
+        // precise semantic edge. Planning boxes must never amputate a head,
+        // hand, wing or other extremity. Only secondary support masks are
+        // constrained to their localized contact anchors.
+        const matchedAnchors = selectedIndex === 0
+          ? []
+          : chosen.anchorIndices
+            .filter((anchorIndex) => anchorIndex > 0)
+            .map((anchorIndex) => anchors[anchorIndex])
+            .filter(Boolean);
         for (let offset = 0; offset < maskPixels.data.length; offset += 4) {
+          const pixelIndex = offset / 4;
+          const x = pixelIndex % width;
+          const y = Math.floor(pixelIndex / width);
+          const normalizedX = x / width;
+          const normalizedY = y / height;
+          const insideSemanticAnchor = selectedIndex === 0 || matchedAnchors.some((anchor, anchorIndex) => (
+            pointInsidePhotoAnchor(anchor, normalizedX, normalizedY, anchorIndex)
+          ));
           const luminance = (maskPixels.data[offset] + maskPixels.data[offset + 1] + maskPixels.data[offset + 2]) / 3;
           const selectedLuminance = chosen.invert ? 255 - luminance : luminance;
           maskPixels.data[offset] = 255;
           maskPixels.data[offset + 1] = 255;
           maskPixels.data[offset + 2] = 255;
-          maskPixels.data[offset + 3] = selectedLuminance >= 112 ? 255 : 0;
+          maskPixels.data[offset + 3] = insideSemanticAnchor && selectedLuminance >= 112 ? 255 : 0;
         }
         raw.putImageData(maskPixels, 0, 0);
+        // Keep the semantic cutout on its real edge. Expanding it would pull a
+        // ring of pond/sky/ground pixels into the photo fragment and create the
+        // very green or white sticker halo that this composite must avoid.
         mask.drawImage(rawCanvas, 0, 0);
       }
     } else if (!hasGuidedRegion) {
@@ -884,7 +1302,12 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     }
     mask.filter = "none";
   }
-  if (spec.layout === "scene-fragment") {
+  // Keep the whole factual paper fragment, including the source context around
+  // the subject. This is intentionally larger than the semantic subject mask.
+  if (spec.layout === "scene-fragment" && hasLocalHandoffRegion) {
+    mask.drawImage(handoffMaskCanvas, 0, 0);
+  }
+  if (spec.layout === "scene-fragment" && !spec.subjectMasks?.length) {
     const edgeForegroundMask = createEdgeForegroundMask(sourceImage, width, height, spec.edgeForegroundSides);
     if (edgeForegroundMask) mask.drawImage(edgeForegroundMask, 0, 0);
   }
@@ -893,6 +1316,11 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   fragment.globalCompositeOperation = "source-over";
 
   if (spec.layout === "scene-fragment") {
+    // Prefer the source-planned relationship boundary. The final semantic mask
+    // is only a fallback for genuinely isolated objects with no scene seam.
+    const usesRelationshipHandoff = hasGuidedRegion || hasLocalHandoffRegion;
+    const fiberHandoff = createTornFiberHandoff(usesRelationshipHandoff ? handoffMaskCanvas : maskCanvas, width, height);
+    if (fiberHandoff) context.drawImage(fiberHandoff, 0, 0);
     const featherCanvas = document.createElement("canvas");
     featherCanvas.width = width;
     featherCanvas.height = height;
@@ -904,5 +1332,8 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     }
   }
   context.drawImage(fragmentCanvas, 0, 0);
+  if (spec.layout === "scene-fragment") {
+    drawChromaticBridge(context, width, height, anchors, spec.structuralHue);
+  }
   return canvas.toDataURL("image/jpeg", 0.94);
 }

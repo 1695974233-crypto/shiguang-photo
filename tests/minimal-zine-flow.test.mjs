@@ -19,7 +19,7 @@ test("minimal zine uses intact photo, authored print, paper, and structural colo
   assert.match(route, /Keep the retained photograph as one intact, natural, unfiltered printed fragment/);
   assert.match(route, /anchored-bleed-internal-seam/);
   assert.match(route, /照片内部海报化、阈值化、矢量化、选择性改色、语义分割/);
-  assert.match(route, /adapter\.id === "gathered-scenes" \|\| adapter\.id === "minimal-zine"/);
+  assert.match(route, /adapter\.id === "minimal-zine" \|\| \(adapter\.id === "gathered-scenes" && !usesLocalComposite\)/);
   assert.doesNotMatch(runtime, /72%至88%/);
   assert.doesNotMatch(route, /MIT 许可项目 README/);
 });
