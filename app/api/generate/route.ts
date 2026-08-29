@@ -71,7 +71,13 @@ type ArkResponse = {
 };
 
 type DashScopeImageResponse = {
-  output?: { choices?: Array<{ message?: { content?: Array<{ image?: string }> } }> };
+  output?: {
+    task_id?: string;
+    task_status?: string;
+    choices?: Array<{ message?: { content?: Array<{ image?: string }> } }>;
+    code?: string;
+    message?: string;
+  };
   usage?: unknown;
   code?: string;
   message?: string;
@@ -321,14 +327,56 @@ function imageDimensions(dataUri: string) {
 
 function qwenCanvasSpec(body: GenerateRequest) {
   const ratio = body.ratio || "original";
-  if (ratio === "landscape") return { size: "2048*1536", description: "横版4:3暖白无涂布纸，保持输入照片的横向构图" };
-  if (ratio === "portrait") return { size: "1536*2048", description: "竖版3:4暖白无涂布纸，保持输入照片的纵向构图" };
-  if (ratio === "square") return { size: "2048*2048", description: "方形暖白无涂布纸" };
+  if (ratio === "landscape") return { size: "1536*1152", description: "横版4:3暖白无涂布纸，保持输入照片的横向构图" };
+  if (ratio === "portrait") return { size: "1152*1536", description: "竖版3:4暖白无涂布纸，保持输入照片的纵向构图" };
+  if (ratio === "square") return { size: "1440*1440", description: "方形暖白无涂布纸" };
   const dimensions = imageDimensions(body.analysisImage || body.image || "");
   if (!dimensions || dimensions.width <= dimensions.height) {
-    return { size: "1536*2560", description: "3:5竖版暖象牙白天然棉纸，保持输入照片的纵向阅读" };
+    return { size: "1152*1920", description: "3:5竖版暖象牙白天然棉纸，保持输入照片的纵向阅读" };
   }
-  return { size: "2560*1536", description: "5:3横版暖象牙白天然棉纸，保持输入照片的横向阅读" };
+  return { size: "1920*1152", description: "5:3横版暖象牙白天然棉纸，保持输入照片的横向阅读" };
+}
+
+function qwenImagePayload(modelId: string, prompt: string, inputImage: string, outputSize: string) {
+  return {
+    model: modelId,
+    input: {
+      messages: [{ role: "user", content: [{ image: inputImage }, { text: prompt }] }],
+    },
+    parameters: {
+      prompt_extend: false,
+      n: 1,
+      size: outputSize,
+      watermark: false,
+      negative_prompt: "矩形照片，圆角矩形照片，对称徽章形开口，贴纸抠图，均匀白色描边，发光边缘，数码蒙版，沿主体轮廓紧边裁切，多处摄影开口，整页摄影，满版照片，主体插画化，照片内部滤镜，改变身份、脸、表情、年龄、姿态、手、肢体、衣服、物体、数量、位置、透视或自然颜色，复制主体，新增人物、动物、植物、建筑、道路、车辆、船、图标、箭头、装饰几何或无关景物，重画完整背景，密集印花，多个高饱和强调色，霓虹，重度棕黄做旧，污渍满版，亮面质感，电影光效，厚纸阴影，卷角，翘边，层叠卡片，胶带，立体纸张，工作室样机，标题层级，副标题，品牌，署名，网址，广告，日期，坐标，序号，虚构引语，Logo，水印",
+    },
+  };
+}
+
+function dashscopeAsyncImageEndpoint() {
+  const explicit = process.env.DASHSCOPE_ASYNC_IMAGE_ENDPOINT?.trim();
+  if (explicit) return explicit;
+  const synchronous = process.env.DASHSCOPE_IMAGE_ENDPOINT?.trim();
+  if (synchronous) return synchronous.replace("/multimodal-generation/generation", "/image-generation/generation");
+  return "https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation";
+}
+
+async function startQwenImageTask(apiKey: string, modelId: string, prompt: string, inputImage: string, outputSize: string) {
+  const response = await fetch(dashscopeAsyncImageEndpoint(), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "X-DashScope-Async": "enable",
+    },
+    body: JSON.stringify(qwenImagePayload(modelId, prompt, inputImage, outputSize)),
+    signal: AbortSignal.timeout(25_000),
+  });
+  const data = await response.json() as DashScopeImageResponse;
+  if (!response.ok) throw new Error(data.message || data.output?.message || data.code || data.output?.code || `异步生图任务提交失败（${response.status}）。`);
+  const taskId = data.output?.task_id;
+  if (!taskId) throw new Error("异步生图服务没有返回任务编号。");
+  return taskId;
 }
 
 async function generateQwenImageCandidate(apiKey: string, modelId: string, prompt: string, inputImage: string, timeoutMs: number, outputSize: string) {
@@ -338,17 +386,7 @@ async function generateQwenImageCandidate(apiKey: string, modelId: string, promp
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: modelId,
-      input: {
-        messages: [{ role: "user", content: [{ image: inputImage }, { text: prompt }] }],
-      },
-      parameters: {
-        prompt_extend: false,
-        n: 1,
-        size: outputSize,
-        watermark: false,
-        negative_prompt: "矩形照片，圆角矩形照片，对称徽章形开口，贴纸抠图，均匀白色描边，发光边缘，数码蒙版，沿主体轮廓紧边裁切，多处摄影开口，整页摄影，满版照片，主体插画化，照片内部滤镜，改变身份、脸、表情、年龄、姿态、手、肢体、衣服、物体、数量、位置、透视或自然颜色，复制主体，新增人物、动物、植物、建筑、道路、车辆、船、图标、箭头、装饰几何或无关景物，重画完整背景，密集印花，多个高饱和强调色，霓虹，重度棕黄做旧，污渍满版，亮面质感，电影光效，厚纸阴影，卷角，翘边，层叠卡片，胶带，立体纸张，工作室样机，标题层级，副标题，品牌，署名，网址，广告，日期，坐标，序号，虚构引语，Logo，水印",
-      },
+      ...qwenImagePayload(modelId, prompt, inputImage, outputSize),
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -449,12 +487,12 @@ export async function POST(request: Request) {
 
   const instruction = body.instruction?.trim();
   let plan: SkillPlan;
-  try {
-    plan = await compileSkillPlan(apiKey, body, instruction || "", adapter);
-  } catch (error) {
-    if (adapter.id === "gathered-scenes") {
-      plan = scenePaperCollageFallbackPlan(body, instruction || "");
-    } else {
+  if (adapter.id === "gathered-scenes") {
+    plan = scenePaperCollageFallbackPlan(body, instruction || "");
+  } else {
+    try {
+      plan = await compileSkillPlan(apiKey, body, instruction || "", adapter);
+    } catch (error) {
       const reason = error instanceof Error ? error.message : "照片分析失败。";
       return Response.json({ error: `所选 Skill 还没有完成读图，因此没有继续扣费生图。${reason}` }, { status: 502 });
     }
@@ -482,6 +520,29 @@ export async function POST(request: Request) {
     });
   }
 
+  const dashscopeKey = process.env.DASHSCOPE_API_KEY?.trim();
+  const qwenImageModel = process.env.DASHSCOPE_GATHERED_IMAGE_MODEL?.trim() || "qwen-image-3.0-pro";
+  if (adapter.id === "gathered-scenes" && dashscopeKey) {
+    const qwenSpec = qwenCanvasSpec(body);
+    const taskPrompt = `${qwenScenePaperCollageContract(qwenSpec.description)}\n\n${prompt}`;
+    try {
+      const taskId = await startQwenImageTask(dashscopeKey, qwenImageModel, taskPrompt, body.image, qwenSpec.size);
+      return Response.json({
+        pendingTask: { id: taskId, pollAfterMs: 2500 },
+        model: qwenImageModel,
+        modelLabel: qwenImageModel === "qwen-image-3.0-pro" ? "Qwen Image 3.0 Pro" : "Qwen Image 3.0",
+        fallbackUsed: false,
+        autoRetried: false,
+        skill: { name: adapter.name, implementation: adapter.implementation, sourceUrl: adapter.sourceUrl },
+        skillAnalysis: plan.photoAnalysis,
+        skillRecipe: `${plan.recipe} 本次由 make-scene-paper-collage 异步任务直接编辑输入照片，不再把分析、生成、质检和重试塞在同一个网页请求里。`,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "异步生图任务提交失败。";
+      return Response.json({ error: `拾景纸刊任务没有成功提交。${reason}` }, { status: 502 });
+    }
+  }
+
   const configuredIds = process.env.ARK_IMAGE_MODELS
     ?.split(",")
     .map((item) => item.trim())
@@ -498,8 +559,6 @@ export async function POST(request: Request) {
     ...configuredIds,
     ...defaultModelChain.map((model) => model.id),
   ])];
-  const dashscopeKey = process.env.DASHSCOPE_API_KEY?.trim();
-  const qwenImageModel = process.env.DASHSCOPE_GATHERED_IMAGE_MODEL?.trim() || "qwen-image-3.0-pro";
   const models = [
     ...(adapter.id === "gathered-scenes" && dashscopeKey
       ? [{ id: qwenImageModel, label: "Qwen Image 3.0 Pro", provider: "dashscope" as const }]

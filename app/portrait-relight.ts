@@ -93,6 +93,23 @@ export async function createAnalysisThumbnail(source: string) {
   return canvas.toDataURL("image/jpeg", 0.82);
 }
 
+export async function createGenerationInput(source: string) {
+  const image = await loadImage(source);
+  const maximumDimension = 2048;
+  const scale = Math.min(1, maximumDimension / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("浏览器无法准备生图照片。请更新浏览器后重试。");
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
 function drawOverlayText(context: CanvasRenderingContext2D, width: number, height: number, text: string, position: string) {
   const cleanText = text.trim().slice(0, 80);
   if (!cleanText) return;

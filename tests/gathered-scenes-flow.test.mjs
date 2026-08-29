@@ -56,13 +56,29 @@ test("gathered scenes sends only the original edit target and uses skill-native 
   assert.match(route, /const imageInputs = \[body\.image, \.\.\.styleReferences\]/);
   assert.match(route, /generateQwenImageCandidate\([\s\S]*body\.image!/);
   assert.doesNotMatch(route, /generateQwenImageCandidate\([\s\S]{0,260}body\.analysisImage \|\| body\.image!/);
-  assert.match(route, /size: "1536\*2560"/);
-  assert.match(route, /size: "2560\*1536"/);
+  assert.match(route, /size: "1152\*1920"/);
+  assert.match(route, /size: "1920\*1152"/);
   assert.match(route, /3:5竖版暖象牙白天然棉纸/);
   assert.match(route, /5:3横版暖象牙白天然棉纸/);
   assert.match(route, /qwenScenePaperCollageContract/);
   assert.match(route, /prompt_extend: false/);
   assert.match(route, /watermark: false/);
+});
+
+test("gathered scenes uses a short async submission and a separate task poll route", async () => {
+  const route = await readFile(routePath, "utf8");
+  const page = await readFile(pagePath, "utf8");
+  const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
+
+  assert.match(route, /X-DashScope-Async/);
+  assert.match(route, /startQwenImageTask/);
+  assert.match(route, /pendingTask: \{ id: taskId, pollAfterMs: 2500 \}/);
+  assert.match(route, /plan = scenePaperCollageFallbackPlan/);
+  assert.match(page, /createGenerationInput/);
+  assert.match(page, /fetch\("\/api\/generate\/task"/);
+  assert.match(page, /10 \* 60_000/);
+  assert.match(taskRoute, /task_status/);
+  assert.match(taskRoute, /inlineImageForBrowser/);
 });
 
 test("empty or malformed photo analysis falls back without blocking collage generation", async () => {

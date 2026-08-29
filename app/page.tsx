@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
-import { applyPortraitRelight, createAnalysisThumbnail, PortraitRelightSpec } from "./portrait-relight";
+import { applyPortraitRelight, createAnalysisThumbnail, createGenerationInput, PortraitRelightSpec } from "./portrait-relight";
 import { applyRealScenePaperComposite, RealScenePaperCompositeSpec } from "./real-scene-paper-composite";
 
 type Scene = {
@@ -23,6 +23,23 @@ type SkillResult = {
   sourceUrl?: string;
   analysis: string;
   recipe: string;
+};
+
+type GenerationResponse = {
+  image?: string;
+  error?: string;
+  modelLabel?: string;
+  fallbackUsed?: boolean;
+  autoRetried?: boolean;
+  qualityWarning?: string[];
+  qualityCorrection?: string;
+  compositeWarning?: string;
+  skill?: { name: string; implementation: string; sourceUrl?: string };
+  skillAnalysis?: string;
+  skillRecipe?: string;
+  localEdit?: PortraitRelightSpec;
+  localComposite?: RealScenePaperCompositeSpec;
+  pendingTask?: { id: string; pollAfterMs?: number };
 };
 
 const scenes: Scene[] = [
@@ -116,15 +133,20 @@ export default function Home() {
     const isPixelRelight = selectedScene.id === "portrait-relight";
     setStatus(isPixelRelight
       ? "正在定位人物并进行像素级补光，原照片不会交给生图模型重绘…"
+      : selectedScene.id === "gathered-scenes"
+        ? "正在准备照片并提交拾景纸刊任务，提交后网页会自动取回结果…"
       : mode === "refine" ? "Skill 正在阅读上一版作品并编译本次修改…" : "Skill 正在阅读照片、选择构图并编译专属方案，然后再生成图片…");
 
     try {
       const analysisImage = await createAnalysisThumbnail(inputImage);
+      const generationImage = selectedScene.id === "gathered-scenes"
+        ? await createGenerationInput(inputImage)
+        : inputImage;
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          image: inputImage,
+          image: generationImage,
           analysisImage,
           sceneId: selectedScene.id,
           accessCode: accessCode.trim(),
@@ -135,21 +157,39 @@ export default function Home() {
           qualityCorrection: mode === "new" ? qualityCorrection : "",
         }),
       });
-      const data = await response.json() as {
-        image?: string;
-        error?: string;
-        modelLabel?: string;
-        fallbackUsed?: boolean;
-        autoRetried?: boolean;
-        qualityWarning?: string[];
-        qualityCorrection?: string;
-        compositeWarning?: string;
-        skill?: { name: string; implementation: string; sourceUrl?: string };
-        skillAnalysis?: string;
-        skillRecipe?: string;
-        localEdit?: PortraitRelightSpec;
-        localComposite?: RealScenePaperCompositeSpec;
-      };
+      let data = await response.json() as GenerationResponse;
+      if (response.ok && data.pendingTask) {
+        if (data.skill && data.skillAnalysis && data.skillRecipe) {
+          setSkillResult({ ...data.skill, analysis: data.skillAnalysis, recipe: data.skillRecipe });
+        }
+        setStatus("拾景纸刊任务已提交，正在后台生成；网页会自动取回结果，请保持当前页面打开…");
+        const deadline = Date.now() + 10 * 60_000;
+        let consecutiveNetworkFailures = 0;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, data.pendingTask?.pollAfterMs || 2500));
+          try {
+            const taskResponse = await fetch("/api/generate/task", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ taskId: data.pendingTask.id, accessCode: accessCode.trim() }),
+            });
+            const taskData = await taskResponse.json() as { status?: "pending" | "succeeded"; taskStatus?: string; image?: string; error?: string };
+            if (!taskResponse.ok) throw new Error(taskData.error || "读取生图结果失败。");
+            consecutiveNetworkFailures = 0;
+            if (taskData.status === "succeeded" && taskData.image) {
+              data = { ...data, image: taskData.image };
+              break;
+            }
+            setStatus(taskData.taskStatus === "PENDING"
+              ? "拾景纸刊正在排队，网页会自动取回结果…"
+              : "拾景纸刊正在生成，网页会自动取回结果…");
+          } catch (pollError) {
+            consecutiveNetworkFailures += 1;
+            if (consecutiveNetworkFailures >= 3) throw pollError;
+          }
+        }
+        if (!data.image) throw new Error("生成等待超过 10 分钟，请稍后再试。");
+      }
       if (!response.ok || (!data.image && !data.localEdit)) throw new Error(data.error || "生成失败，请稍后重试。");
       const nextImage = data.localEdit
         ? await applyPortraitRelight(inputImage, data.localEdit)
