@@ -39,7 +39,18 @@ type GenerationResponse = {
   skillRecipe?: string;
   localEdit?: PortraitRelightSpec;
   localComposite?: RealScenePaperCompositeSpec;
-  pendingTask?: { id: string; pollAfterMs?: number };
+  shouldRetry?: boolean;
+  pendingTask?: {
+    id: string;
+    pollAfterMs?: number;
+    reviewContext?: {
+      subject?: string;
+      subjectBox?: { x: number; y: number; width: number; height: number };
+      subjectAnchors?: string[];
+      requiredMotifs?: string[];
+      forbidden?: string[];
+    };
+  };
 };
 
 const scenes: Scene[] = [
@@ -122,14 +133,14 @@ export default function Home() {
     setStatus(source ? `已选择「${scene.name}」。可以补充文字或直接生成。` : `已选择「${scene.name}」。上传照片后即可生成。`);
   }
 
-  async function requestGeneration(mode: "new" | "refine", refinement = "") {
+  async function requestGeneration(mode: "new" | "refine", refinement = "", forcedCorrection = "", automaticRetryAttempt = 0) {
     if (!source || !selectedScene) {
       setError("请先上传照片并选择一个场景。");
       return;
     }
     setIsGenerating(true);
     setError("");
-    const inputImage = mode === "refine" && result ? result : source;
+    const inputImage = selectedScene.id === "gathered-scenes" ? source : mode === "refine" && result ? result : source;
     const isPixelRelight = selectedScene.id === "portrait-relight";
     setStatus(isPixelRelight
       ? "正在定位人物并进行像素级补光，原照片不会交给生图模型重绘…"
@@ -154,7 +165,7 @@ export default function Home() {
           textPosition,
           ratio,
           mode,
-          qualityCorrection: mode === "new" ? qualityCorrection : "",
+          qualityCorrection: forcedCorrection || (mode === "new" ? qualityCorrection : ""),
         }),
       });
       let data = await response.json() as GenerationResponse;
@@ -171,13 +182,32 @@ export default function Home() {
             const taskResponse = await fetch("/api/generate/task", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ taskId: data.pendingTask.id, accessCode: accessCode.trim() }),
+              body: JSON.stringify({
+                taskId: data.pendingTask.id,
+                accessCode: accessCode.trim(),
+                sourceImage: analysisImage,
+                reviewContext: data.pendingTask.reviewContext,
+              }),
             });
-            const taskData = await taskResponse.json() as { status?: "pending" | "succeeded"; taskStatus?: string; image?: string; error?: string };
+            const taskData = await taskResponse.json() as {
+              status?: "pending" | "succeeded";
+              taskStatus?: string;
+              image?: string;
+              error?: string;
+              qualityWarning?: string[];
+              qualityCorrection?: string;
+              shouldRetry?: boolean;
+            };
             if (!taskResponse.ok) throw new Error(taskData.error || "读取生图结果失败。");
             consecutiveNetworkFailures = 0;
             if (taskData.status === "succeeded" && taskData.image) {
-              data = { ...data, image: taskData.image };
+              data = {
+                ...data,
+                image: taskData.image,
+                qualityWarning: taskData.qualityWarning,
+                qualityCorrection: taskData.qualityCorrection,
+                shouldRetry: taskData.shouldRetry,
+              };
               break;
             }
             setStatus(taskData.taskStatus === "PENDING"
@@ -191,6 +221,13 @@ export default function Home() {
         if (!data.image) throw new Error("生成等待超过 10 分钟，请稍后再试。");
       }
       if (!response.ok || (!data.image && !data.localEdit)) throw new Error(data.error || "生成失败，请稍后重试。");
+      if (selectedScene.id === "gathered-scenes" && data.shouldRetry && data.qualityCorrection && automaticRetryAttempt < 1) {
+        setQualityCorrection(data.qualityCorrection);
+        setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "主体位置或纸面主背景母题不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
+        await requestGeneration(mode, refinement, data.qualityCorrection, automaticRetryAttempt + 1);
+        return;
+      }
+      if (automaticRetryAttempt > 0) data.autoRetried = true;
       const nextImage = data.localEdit
         ? await applyPortraitRelight(inputImage, data.localEdit)
         : data.localComposite
@@ -208,7 +245,9 @@ export default function Home() {
       setStatus(data.localEdit
         ? "像素级补光已完成：保留原始人物、五官、手势和背景，没有调用生图模型。"
         : selectedScene.id === "gathered-scenes"
-          ? `拾景纸刊已完成${modelStatus}：已直接运行 make-scene-paper-collage，成图不会再经过旧版语义分割或浏览器二次纸裁。`
+          ? data.qualityWarning?.length
+            ? `拾景纸刊已完成${modelStatus}，但最终检查仍发现：${data.qualityWarning.slice(0, 2).join("；")}。点击“再生成一次”会继续带上纠偏要求。`
+            : `拾景纸刊已完成${modelStatus}：主体坐标与大小、原图主背景母题均已进入最终检查，成图不会后贴原图主体。`
         : data.localComposite
           ? `结构记忆编辑已完成${modelStatus}：摄影区使用原图真实像素，抽象区只提炼画面关系。`
         : data.compositeWarning

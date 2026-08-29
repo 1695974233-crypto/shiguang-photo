@@ -22,7 +22,7 @@ test("gathered scenes directly runs make-scene-paper-collage instead of the lega
   assert.match(runtime, /implementation: "个人 Skill 适配"/);
   assert.match(runtime, /直接运行 make-scene-paper-collage 图像编辑工作流/);
   assert.match(page, /个人 Skill · make-scene-paper-collage/);
-  assert.match(page, /成图不会再经过旧版语义分割或浏览器二次纸裁/);
+  assert.match(page, /成图不会后贴原图主体/);
 });
 
 test("scene paper collage compiler follows the personal skill visual specification", async () => {
@@ -73,13 +73,21 @@ test("gathered scenes uses a short async submission and a separate task poll rou
 
   assert.match(route, /X-DashScope-Async/);
   assert.match(route, /startQwenImageTask/);
-  assert.match(route, /pendingTask: \{ id: taskId, pollAfterMs: 2500 \}/);
+  assert.match(route, /pendingTask: \{[\s\S]{0,160}id: taskId,[\s\S]{0,80}pollAfterMs: 2500/);
   assert.match(route, /plan = scenePaperCollageFallbackPlan/);
   assert.match(page, /createGenerationInput/);
   assert.match(page, /fetch\("\/api\/generate\/task"/);
+  assert.match(page, /sourceImage: analysisImage/);
+  assert.match(page, /reviewContext: data\.pendingTask\.reviewContext/);
+  assert.match(page, /automaticRetryAttempt < 1/);
+  assert.match(page, /await requestGeneration\(mode, refinement, data\.qualityCorrection, automaticRetryAttempt \+ 1\)/);
   assert.match(page, /10 \* 60_000/);
   assert.match(taskRoute, /task_status/);
   assert.match(taskRoute, /inlineImageForBrowser/);
+  assert.match(taskRoute, /reviewScenePaperCollage/);
+  assert.match(taskRoute, /subjectGeometryPass/);
+  assert.match(taskRoute, /requiredMotifPass/);
+  assert.match(taskRoute, /shouldRetry/);
 });
 
 test("empty or malformed photo analysis falls back without blocking collage generation", async () => {
@@ -88,7 +96,7 @@ test("empty or malformed photo analysis falls back without blocking collage gene
   assert.match(route, /function compilerMessageText/);
   assert.match(route, /Array\.isArray\(content\)/);
   assert.match(route, /function scenePaperCollageFallbackPlan/);
-  assert.match(route, /if \(adapter\.id === "gathered-scenes"\)[\s\S]*plan = scenePaperCollageFallbackPlan\(body, instruction \|\| "", backgroundPlan\)/);
+  assert.match(route, /if \(adapter\.id === "gathered-scenes"\)[\s\S]*plan = scenePaperCollageFallbackPlan\(body, instruction \|\| "", sceneBackgroundPlan\)/);
   assert.match(route, /一处占页面约45%至65%/);
   assert.match(route, /只从原图中选择一至两个清楚可见/);
   assert.match(route, /max_tokens: adapter\.id === "gathered-scenes" \? 4200/);
@@ -100,7 +108,16 @@ test("paper background uses active source-derived primary and secondary print fi
 
   assert.match(route, /type SceneBackgroundPlan/);
   assert.match(route, /compileSceneBackgroundPlan/);
+  assert.match(route, /subjectBox/);
+  assert.match(route, /subjectAnchors/);
+  assert.match(route, /中心位移不得超过画布宽高的3%/);
+  assert.match(route, /宽高变化不得超过5%/);
+  assert.match(route, /禁止平移、放大、缩小、旋转、镜像、透视校正、重新取景/);
+  assert.match(route, /不要生成后再把原图主体覆盖或粘贴回来/);
   assert.match(route, /motifs 为1至2项，优先给出2项/);
+  assert.match(route, /池塘场景若清楚可见荷叶、荷花或睡莲/);
+  assert.match(route, /第一项必须选择这些圆叶或花朵/);
+  assert.match(route, /纸面至少保留三处可辨认的轮廓或节奏/);
   assert.match(route, /原照片背景的绘画化转译/);
   assert.match(route, /主印刷场必须与对应景物所在的撕口边缘相接/);
   assert.match(route, /次级场景回声/);
