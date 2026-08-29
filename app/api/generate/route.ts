@@ -78,7 +78,7 @@ type DashScopeImageResponse = {
 };
 
 type CompilerResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
   error?: { message?: string };
 };
 
@@ -154,6 +154,44 @@ function parseSkillPlan(raw: string, adapterId: string): SkillPlan {
   return plan;
 }
 
+function compilerMessageText(content: CompilerResponse["choices"] extends Array<infer Choice> | undefined
+  ? Choice extends { message?: infer Message }
+    ? Message extends { content?: infer Content }
+      ? Content
+      : never
+    : never
+  : never) {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((item) => typeof item?.text === "string" ? item.text : "")
+    .join("\n")
+    .trim();
+}
+
+function scenePaperCollageFallbackPlan(body: GenerateRequest, instruction: string): SkillPlan {
+  const dimensions = imageDimensions(body.analysisImage || body.image || "");
+  const isLandscape = Boolean(dimensions && dimensions.width > dimensions.height);
+  const explicitRatio = body.ratio && body.ratio !== "original" ? body.ratio : undefined;
+  const canvas = explicitRatio === "square"
+    ? "1:1方形"
+    : explicitRatio === "portrait"
+      ? "3:4竖版"
+      : explicitRatio === "landscape"
+        ? "4:3横版"
+        : isLandscape
+          ? "5:3横版"
+          : "3:5竖版";
+  const userRule = instruction
+    ? `逐字遵守用户补充要求：${instruction}`
+    : "用户没有要求文字，成品保持无字。";
+  return {
+    photoAnalysis: `保留原照片中的主要人物、物体或主体关系，以及能说明地点的必要环境。按${canvas}阅读，主体安全优先；从原图中选择一至两个清楚可见的背景结构延续到纸面，并把最大安静区域留作裸纸。`,
+    recipe: `使用一处比主体略大的非对称手撕摄影开口，保留原照片自然色彩和空间关系；开口外仅以低对比印痕延续一至两个源场景结构，其他区域保持暖象牙白纤维纸。${userRule}`,
+    finalPrompt: `输出${canvas}平面扫描纸拼海报。把输入照片作为唯一编辑目标，自动识别主要主体、主体关系和不会伤害主体的安全裁切；使用一处占页面约45%至65%、比主体略大、包含必要原环境的宽阔非对称手撕摄影开口。让暖象牙白天然棉纸成为完整页面，并在摄影区周围保留大量未印纸面。\n\n摄影开口内部必须保持输入照片的自然摄影事实：主体身份、脸、表情、姿态、手、解剖、衣服、决定性物体、数量、自然色彩、曝光、纹理、透视、遮挡和相对位置全部不变。不得美化、重画、滤镜化或复制主体；不得裁掉主要主体，也不得把主体抠成紧边贴纸。\n\n只从输入照片中选择一至两个真实可见、最能说明地点的背景结构，例如树枝、栏杆、桥线、水面、屋顶、墙体、地平线或石头；在摄影开口之外把它们简化为低对比的粗网点、干刷丝网、石墨拓印或稀疏机械线，最多使用两种相容处理。印痕必须从原场景延续、保持次要、允许淡出和中止。撕边细薄平整，具有自然变化的暖色纸纤维、浅凹口和少量拉丝。${userRule}\n\n整张成品呈现哑光吸墨、轻微套色偏差、细纸纤维和克制扫描颗粒，所有材料二维平整。禁止矩形或圆角矩形照片、对称徽章、均匀贴纸白边、数码蒙版、多处摄影开口、整页背景重画、新增人物或物体、无来源植物或建筑、装饰图标或几何、阴影、翘角、层叠卡片、样机、Logo、水印、网址、广告、日期、坐标和序号。`,
+  };
+}
+
 async function compileSkillPlan(apiKey: string, body: GenerateRequest, instruction: string, adapter: typeof skillAdapters[string]) {
   const sourceDimensions = imageDimensions(body.analysisImage || body.image || "");
   const sourceOrientation = sourceDimensions && sourceDimensions.width > sourceDimensions.height ? "landscape" : "portrait";
@@ -207,15 +245,15 @@ Skill：${adapter.name}
         ] },
       ],
       response_format: { type: "json_object" },
-      reasoning_effort: adapter.id === "gathered-scenes" ? "medium" : "minimal",
+      reasoning_effort: "minimal",
       temperature: adapter.id === "gathered-scenes" ? 0.12 : 0.2,
-      max_tokens: adapter.id === "gathered-scenes" ? 2600 : 1800,
+      max_tokens: adapter.id === "gathered-scenes" ? 4200 : 1800,
     }),
     signal: AbortSignal.timeout(90_000),
   });
   const data = await response.json() as CompilerResponse;
   if (!response.ok) throw new Error(data.error?.message || `照片分析失败（${response.status}）。`);
-  const content = data.choices?.[0]?.message?.content;
+  const content = compilerMessageText(data.choices?.[0]?.message?.content);
   if (!content) throw new Error("照片分析模型没有返回方案。");
   return parseSkillPlan(content, adapter.id);
 }
@@ -365,7 +403,7 @@ async function reviewGeneratedImage(apiKey: string, body: GenerateRequest, outpu
   });
   const data = await response.json() as CompilerResponse;
   if (!response.ok) throw new Error(data.error?.message || `质量检查失败（${response.status}）。`);
-  const content = data.choices?.[0]?.message?.content;
+  const content = compilerMessageText(data.choices?.[0]?.message?.content);
   if (!content) throw new Error("质量检查没有返回结果。");
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const parsed = JSON.parse(cleaned) as Partial<QualityReview>;
@@ -414,8 +452,12 @@ export async function POST(request: Request) {
   try {
     plan = await compileSkillPlan(apiKey, body, instruction || "", adapter);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "照片分析失败。";
-    return Response.json({ error: `所选 Skill 还没有完成读图，因此没有继续扣费生图。${reason}` }, { status: 502 });
+    if (adapter.id === "gathered-scenes") {
+      plan = scenePaperCollageFallbackPlan(body, instruction || "");
+    } else {
+      const reason = error instanceof Error ? error.message : "照片分析失败。";
+      return Response.json({ error: `所选 Skill 还没有完成读图，因此没有继续扣费生图。${reason}` }, { status: 502 });
+    }
   }
   const correction = body.qualityCorrection?.trim().slice(0, 600);
   const gatheredGuardrail = adapter.id === "gathered-scenes"
@@ -493,7 +535,7 @@ export async function POST(request: Request) {
             dashscopeKey!,
             model.id,
             qwenPrompt(candidatePrompt),
-            body.analysisImage || body.image!,
+            body.image!,
             timeoutMs,
             qwenSpec.size,
           )
@@ -519,7 +561,7 @@ export async function POST(request: Request) {
           try {
             const retryPrompt = `${prompt}\n\n自动质检只发现以下失败项：${review.correction}\n仅修正这一项；保持上一版已经正确的主体身份、摄影开口位置与范围、纸面留白、场景印痕、颜色和构图，不要重新设计成功部分。`;
             candidate = model.provider === "dashscope"
-              ? await generateQwenImageCandidate(dashscopeKey!, model.id, qwenPrompt(retryPrompt), body.analysisImage || body.image!, Math.min(210_000, retryBudgetMs - 8_000), qwenSpec.size)
+              ? await generateQwenImageCandidate(dashscopeKey!, model.id, qwenPrompt(retryPrompt), body.image!, Math.min(210_000, retryBudgetMs - 8_000), qwenSpec.size)
               : await generateImageCandidate(apiKey, model.id, retryPrompt, adapter.id === "minimal-zine" ? imageInputs : [body.image], Math.min(90_000, retryBudgetMs - 8_000));
             autoRetried = true;
             const secondReviewBudgetMs = Math.min(35_000, generationDeadline - Date.now());

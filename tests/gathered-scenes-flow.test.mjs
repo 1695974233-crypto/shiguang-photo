@@ -49,12 +49,13 @@ test("scene paper collage compiler follows the personal skill visual specificati
   assert.match(runtime, /全部二维平整/);
 });
 
-test("gathered scenes sends only the edit target and uses skill-native ratios", async () => {
+test("gathered scenes sends only the original edit target and uses skill-native ratios", async () => {
   const route = await readFile(routePath, "utf8");
 
   assert.match(route, /const styleReferences = adapter\.id === "minimal-zine"/);
   assert.match(route, /const imageInputs = \[body\.image, \.\.\.styleReferences\]/);
-  assert.match(route, /generateQwenImageCandidate\([\s\S]*body\.analysisImage \|\| body\.image!/);
+  assert.match(route, /generateQwenImageCandidate\([\s\S]*body\.image!/);
+  assert.doesNotMatch(route, /generateQwenImageCandidate\([\s\S]{0,260}body\.analysisImage \|\| body\.image!/);
   assert.match(route, /size: "1536\*2560"/);
   assert.match(route, /size: "2560\*1536"/);
   assert.match(route, /3:5竖版暖象牙白天然棉纸/);
@@ -62,6 +63,18 @@ test("gathered scenes sends only the edit target and uses skill-native ratios", 
   assert.match(route, /qwenScenePaperCollageContract/);
   assert.match(route, /prompt_extend: false/);
   assert.match(route, /watermark: false/);
+});
+
+test("empty or malformed photo analysis falls back without blocking collage generation", async () => {
+  const route = await readFile(routePath, "utf8");
+
+  assert.match(route, /function compilerMessageText/);
+  assert.match(route, /Array\.isArray\(content\)/);
+  assert.match(route, /function scenePaperCollageFallbackPlan/);
+  assert.match(route, /if \(adapter\.id === "gathered-scenes"\) \{\s*plan = scenePaperCollageFallbackPlan/);
+  assert.match(route, /一处占页面约45%至65%/);
+  assert.match(route, /只从输入照片中选择一至两个真实可见/);
+  assert.match(route, /max_tokens: adapter\.id === "gathered-scenes" \? 4200/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {
