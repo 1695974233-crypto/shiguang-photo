@@ -44,7 +44,7 @@ test("scene paper collage compiler follows the personal skill visual specificati
   assert.match(runtime, /一处占页面约45%至65%的主要摄影开口/);
   assert.match(runtime, /主体安全优先/);
   assert.match(runtime, /摄影开口内部保持原照片自然色彩、光线、纹理、身份、脸、表情、姿态、手、解剖、衣服/);
-  assert.match(runtime, /最多两种相容的粗网点、复印点、干刷丝网、石墨拓印、浮雕印影或稀疏机械线/);
+  assert.match(runtime, /最多使用两种相容的粗网点、复印点、干刷丝网、石墨拓印、浮雕印影或稀疏机械线/);
   assert.match(runtime, /约1%至4%的断续覆盖/);
   assert.match(runtime, /全部二维平整/);
 });
@@ -87,10 +87,28 @@ test("empty or malformed photo analysis falls back without blocking collage gene
   assert.match(route, /function compilerMessageText/);
   assert.match(route, /Array\.isArray\(content\)/);
   assert.match(route, /function scenePaperCollageFallbackPlan/);
-  assert.match(route, /if \(adapter\.id === "gathered-scenes"\) \{\s*plan = scenePaperCollageFallbackPlan/);
+  assert.match(route, /if \(adapter\.id === "gathered-scenes"\)[\s\S]*plan = scenePaperCollageFallbackPlan\(body, instruction \|\| "", backgroundPlan\)/);
   assert.match(route, /一处占页面约45%至65%/);
-  assert.match(route, /只从输入照片中选择一至两个真实可见/);
+  assert.match(route, /只从原图中选择一至两个清楚可见/);
   assert.match(route, /max_tokens: adapter\.id === "gathered-scenes" \? 4200/);
+});
+
+test("paper background is compiled only from source-traceable edge continuations", async () => {
+  const route = await readFile(routePath, "utf8");
+  const runtime = await readFile(runtimePath, "utf8");
+
+  assert.match(route, /type SceneBackgroundPlan/);
+  assert.match(route, /compileSceneBackgroundPlan/);
+  assert.match(route, /motifs 只能为0至2项/);
+  assert.match(route, /在该结构实际碰到或最接近撕口的位置开始延伸/);
+  assert.match(route, /向纸面延伸约5%至20%后淡出/);
+  assert.match(route, /没有可靠的源场景结构，宁可留下空白纸面/);
+  assert.match(route, /通用城市素描，库存树木/);
+  assert.match(route, /建筑蓝图，地图线，工程草图/);
+  assert.match(route, /每一个外围印痕都必须与撕口内对应景物形成可追踪的连续线/);
+  assert.match(runtime, /每一处印痕必须从对应景物接触或最接近撕口的那一段连续伸出/);
+  assert.match(runtime, /无法从原图指出来源时宁可留白/);
+  assert.match(runtime, /远离对应撕口边缘的位置另起装饰簇/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {
