@@ -42,6 +42,7 @@ type GenerationResponse = {
   shouldRetry?: boolean;
   hardBlock?: boolean;
   confirmedInventedExteriorObjects?: string[];
+  prohibitedExteriorArtifacts?: string[];
   pendingTask?: {
     id: string;
     pollAfterMs?: number;
@@ -212,6 +213,7 @@ export default function Home() {
               shouldRetry?: boolean;
               hardBlock?: boolean;
               confirmedInventedExteriorObjects?: string[];
+              prohibitedExteriorArtifacts?: string[];
             };
             if (!taskResponse.ok) throw new Error(taskData.error || "读取生图结果失败。");
             consecutiveNetworkFailures = 0;
@@ -224,6 +226,7 @@ export default function Home() {
                 shouldRetry: taskData.shouldRetry,
                 hardBlock: taskData.hardBlock,
                 confirmedInventedExteriorObjects: taskData.confirmedInventedExteriorObjects,
+                prohibitedExteriorArtifacts: taskData.prohibitedExteriorArtifacts,
               };
               break;
             }
@@ -246,7 +249,13 @@ export default function Home() {
       }
       if (selectedScene.id === "gathered-scenes" && data.hardBlock) {
         const invented = data.confirmedInventedExteriorObjects?.slice(0, 3).join("、");
-        throw new Error(`最终检查确认纸裁外部仍出现原图不存在的元素${invented ? `：${invented}` : ""}。本次候选已拦截，不会作为成图交付；你的照片和设置都已保留。`);
+        const artifacts = data.prohibitedExteriorArtifacts?.slice(0, 3).join("、");
+        const reason = invented
+          ? `纸裁外部仍出现原图不存在的场景元素：${invented}`
+          : artifacts
+            ? `画面仍出现产品不允许的伪影：${artifacts}`
+            : "候选仍未通过场景来源或平面纸拼检查";
+        throw new Error(`最终检查确认${reason}。本次候选已拦截，不会作为成图交付；你的照片和设置都已保留。纸张基底、纤维、撕边、印刷和扫描质感不会被当作新增场景元素。`);
       }
       if (automaticRetryAttempt > 0) data.autoRetried = true;
       const nextImage = data.localEdit

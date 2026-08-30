@@ -5,6 +5,7 @@ import test from "node:test";
 const routePath = new URL("../app/api/generate/route.ts", import.meta.url);
 const runtimePath = new URL("../app/skill-runtime.ts", import.meta.url);
 const pagePath = new URL("../app/page.tsx", import.meta.url);
+const policyPath = new URL("../app/scene-paper-collage-policy.ts", import.meta.url);
 
 test("gathered scenes directly runs make-scene-paper-collage instead of the legacy local compositor", async () => {
   const route = await readFile(routePath, "utf8");
@@ -37,7 +38,7 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(route, /SOURCE_EVIDENCE/);
   assert.match(route, /摄影域内主体、必要接触或支撑部分和最少关系环境/);
   assert.match(route, /禁止任何绘画处理/);
-  assert.match(route, /外部任何可辨对象只能来自这一闭集/);
+  assert.match(route, /外部任何可辨场景元素只能来自这一闭集/);
   assert.match(route, /不得自行增加类别、典型场景元素或装饰物/);
   assert.match(route, /撕口不是固定窗口/);
   assert.match(route, /主体紧边抠图/);
@@ -47,8 +48,8 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(runtime, /通常约28%至58%，绝对不得超过整页60%/);
   assert.match(runtime, /P内部从撕边到撕边只能是原图自然摄影/);
   assert.match(runtime, /禁止任何绘画处理/);
-  assert.match(runtime, /SOURCE_BACKGROUND_WHITELIST 闭集/);
-  assert.match(runtime, /绝不能依据地点、题材、主体类别或常见构图补充对象/);
+  assert.match(runtime, /SOURCE_BACKGROUND_WHITELIST 场景语义闭集/);
+  assert.match(runtime, /绝不能依据地点、题材、主体类别或常见构图补充场景元素/);
   assert.match(runtime, /成品二维平整/);
 });
 
@@ -132,39 +133,49 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /visualEvidence/);
   assert.match(route, /confidence/);
   assert.match(route, /backgroundZones 返回1至4项/);
-  assert.match(route, /宁可只返回一个高置信对象，也不要凑数/);
+  assert.match(route, /宁可只返回一个高置信场景元素，也不要凑数/);
   assert.doesNotMatch(route, /荷塘应转译|海边转译|桥边转译|古建转译|荷塘至少考虑/);
   assert.doesNotMatch(route, /鸭脚下的局部岩石|人物扶着的栏柱|古建筑群连续的山体基座/);
   assert.match(route, /天然重复结构至少保留三处可辨轮廓或节奏/);
-  assert.match(route, /SOURCE_BACKGROUND_WHITELIST（闭集）/);
-  assert.match(route, /任何未列入白名单的可辨对象都禁止出现/);
+  assert.match(route, /SOURCE_BACKGROUND_WHITELIST（场景语义闭集）/);
+  assert.match(route, /任何未列入白名单的可辨场景元素都禁止出现/);
   assert.match(route, /影响约45%至75%的外部纸面/);
   assert.match(route, /实际墨覆盖约16%至32%/);
   assert.match(route, /背景近乎空白/);
-  assert.match(route, /任何无法匹配 SOURCE_EVIDENCE 的形状/);
+  assert.match(route, /任何无法匹配 SOURCE_EVIDENCE 的场景语义形状/);
   assert.match(runtime, /I必须来自同一照片P域之外的剩余背景/);
   assert.match(runtime, /主印刷场与对应撕边相接/);
-  assert.match(runtime, /任何可辨形状无法指回原图均失败/);
+  assert.match(runtime, /任何可辨场景形状无法指回原图均失败/);
 });
 
-test("source image is primary evidence and only confirmed invented exterior objects hard-block", async () => {
+test("source image is primary evidence and only absent scene elements or prohibited artifacts hard-block", async () => {
   const route = await readFile(routePath, "utf8");
   const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
   const page = await readFile(pagePath, "utf8");
+  const policy = await readFile(policyPath, "utf8");
 
   assert.match(route, /allowedBackgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
   assert.match(route, /sourceBackgroundWhitelist/);
   assert.match(route, /confidence < 0\.55/);
-  assert.match(route, /任何未列入SOURCE_BACKGROUND_WHITELIST的可辨对象/);
+  assert.match(route, /任何未列入SOURCE_BACKGROUND_WHITELIST的可辨场景元素/);
   assert.doesNotMatch(route, /原图没有的楼房，原图没有的栏杆，原图没有的道路，原图没有的桥/);
   assert.match(taskRoute, /exteriorObjectsDetected/);
   assert.match(taskRoute, /confirmedInventedExteriorObjects/);
   assert.match(taskRoute, /uncertainExteriorMarks/);
+  assert.match(taskRoute, /allowedMaterialEffects/);
+  assert.match(taskRoute, /prohibitedExteriorArtifacts/);
+  assert.match(taskRoute, /exteriorElementAudit/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
-  assert.match(taskRoute, /hardBlock: confirmedInventedExteriorObjects\.length > 0/);
-  assert.doesNotMatch(taskRoute, /shouldRetry:.*!verifiedTraceabilityPass/);
+  assert.match(taskRoute, /hardBlock: !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
+  assert.match(taskRoute, /只有 scene_element 才与第一张原图P域之外逐项核对/);
+  assert.match(taskRoute, /拼贴材料永远不能因为原图中没有纸张而令其失败/);
   assert.match(taskRoute, /第一张原图本身是最高优先级证据/);
-  assert.match(page, /最终检查确认纸裁外部仍出现原图不存在的元素/);
+  assert.match(page, /纸裁外部仍出现原图不存在的场景元素/);
+  assert.match(page, /纸张基底、纤维、撕边、印刷和扫描质感不会被当作新增场景元素/);
+  assert.match(policy, /SCENE_ELEMENT 场景元素/);
+  assert.match(policy, /COLLAGE_MATERIAL 拼贴材料/);
+  assert.match(policy, /ABSTRACT_MARK 抽象印痕/);
+  assert.match(policy, /PROHIBITED_ARTIFACT 禁止伪影/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {
