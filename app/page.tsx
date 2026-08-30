@@ -47,7 +47,12 @@ type GenerationResponse = {
       subject?: string;
       subjectBox?: { x: number; y: number; width: number; height: number };
       subjectAnchors?: string[];
-      requiredMotifs?: string[];
+      supportObjects?: string[];
+      photoDomain?: string;
+      photoDomainBox?: { x: number; y: number; width: number; height: number };
+      photoDomainTargetPercent?: number;
+      boundaryLogic?: string;
+      requiredBackgroundZones?: string[];
       forbidden?: string[];
     };
   };
@@ -56,7 +61,7 @@ type GenerationResponse = {
 const scenes: Scene[] = [
   { id: "minimal-zine", name: "极简 Zine", eyebrow: "完整摄影 · 非具象印刷场", description: "保留一块完整、自然的照片材料，让独立抽象印刷、裸纸留白和一种结构色共同完成版面。", fidelity: "完整保留摄影锚点", preview: "/previews/minimal-zine.jpeg", credit: "独立功能实现 · 案例使用你的建筑照片", previewNote: "照片始终保持为一块未滤镜化的真实材料；插画只在周围纸面独立创作，不再把天空、植物或建筑局部压成色块。" },
   { id: "abstract-editorial", name: "结构记忆编辑", eyebrow: "真照 + 抽象记忆", description: "忠实保留原照片，再从画面关系中提炼一块克制的抽象视觉面板。", fidelity: "高度保留原照", preview: "/previews/abstract-editorial.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
-  { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "一处真照 · 手撕纸拼", description: "用一处宽阔、不对称的真实摄影开口保留主体与现场，在暖白纤维纸上只延续少量同场景印痕。", fidelity: "保留自然摄影与场所关系", preview: "/previews/gathered-scenes.jpg", credit: "个人 Skill · make-scene-paper-collage", previewNote: "竖图默认 3:5、横图默认 5:3；摄影开口保留自然原色，外围只使用一至两个低对比场景印痕，并留下大量裸纸。" },
+  { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "主体真照 · 背景绘画", description: "根据主体、支撑物和背景关系决定手撕边界：内部保留原图摄影，外部把同一场景背景绘画化。", fidelity: "主体位置与自然摄影锁定", preview: "/previews/gathered-scenes.jpg", credit: "个人 Skill · make-scene-paper-collage", previewNote: "摄影域自适应且不超过整页 60%；内部只能是原图自然摄影，外围绘画元素全部来自同一照片背景。" },
   { id: "scene-distillation", name: "场景抽象", eyebrow: "提取关系 · 重新创作", description: "提取照片中的主体关系、方向和情绪，重新组织成一张独立纸面插画。", fidelity: "允许大幅创作", preview: "/previews/scene-distillation.jpg", credit: "独立功能实现 · 不使用第三方 Skill 内容" },
   { id: "photo-relic", name: "照片遗迹", eyebrow: "旧相纸 · 时间痕迹", description: "把照片处理成被时间保存过的纸上遗迹，褪色、磨损而克制。", fidelity: "保留主体关系", preview: "/previews/photo-relic.png", credit: "作者 README 示例 · wnby · MIT", creditUrl: "https://github.com/wnby/photo-relic-editorial" },
   { id: "surreal-pop", name: "单一异物波普", eyebrow: "黑白现实 · 巨物拼贴", description: "以真实照片为锚点，只加入一个与场景有关的不可能巨物。", fidelity: "保留主体，大幅创作", preview: "/previews/surreal-pop.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
@@ -223,7 +228,7 @@ export default function Home() {
       if (!response.ok || (!data.image && !data.localEdit)) throw new Error(data.error || "生成失败，请稍后重试。");
       if (selectedScene.id === "gathered-scenes" && data.shouldRetry && data.qualityCorrection && automaticRetryAttempt < 1) {
         setQualityCorrection(data.qualityCorrection);
-        setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "主体位置或纸面主背景母题不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
+        setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "摄影域或外部背景分区不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
         await requestGeneration(mode, refinement, data.qualityCorrection, automaticRetryAttempt + 1);
         return;
       }
@@ -247,7 +252,7 @@ export default function Home() {
         : selectedScene.id === "gathered-scenes"
           ? data.qualityWarning?.length
             ? `拾景纸刊已完成${modelStatus}，但最终检查仍发现：${data.qualityWarning.slice(0, 2).join("；")}。点击“再生成一次”会继续带上纠偏要求。`
-            : `拾景纸刊已完成${modelStatus}：主体坐标与大小、原图主背景母题均已进入最终检查，成图不会后贴原图主体。`
+            : `拾景纸刊已完成${modelStatus}：主体几何、摄影域上限、内部摄影纯净度与外部原图背景均已进入最终检查，成图不会后贴原图主体。`
         : data.localComposite
           ? `结构记忆编辑已完成${modelStatus}：摄影区使用原图真实像素，抽象区只提炼画面关系。`
         : data.compositeWarning

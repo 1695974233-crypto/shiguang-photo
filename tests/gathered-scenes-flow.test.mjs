@@ -25,29 +25,30 @@ test("gathered scenes directly runs make-scene-paper-collage instead of the lega
   assert.match(page, /成图不会后贴原图主体/);
 });
 
-test("scene paper collage compiler follows the personal skill visual specification", async () => {
+test("scene paper collage compiler enforces the source-scene two-material partition", async () => {
   const route = await readFile(routePath, "utf8");
   const runtime = await readFile(runtimePath, "utf8");
 
   assert.match(route, /const scenePaperCollageContract/);
   assert.match(route, /const scenePaperCollageCompilerContract/);
-  assert.match(route, /唯一摄影开口的位置和约45%至65%的主体安全范围/);
+  assert.match(route, /摄影域通常28%至58%，绝对不得超过60%/);
   assert.match(route, /finalPrompt 必须按四段编写/);
-  assert.match(route, /一至两个将绘画化到纸面的场景结构/);
-  assert.match(route, /主印刷场和一个可跨留白分布的次级场景回声/);
-  assert.match(route, /最多两种相容印刷处理/);
-  assert.match(route, /禁止矩形、圆角矩形、对称徽章、贴纸轮廓、数码蒙版和主体紧边抠图/);
-  assert.match(route, /保留约35%至55%的可见暖象牙白裸纸/);
-  assert.match(route, /强调色可省略/);
+  assert.match(route, /主体—支撑物—背景关系/);
+  assert.match(route, /摄影域内主体、必要接触\/支撑物和最少关系环境/);
+  assert.match(route, /禁止任何绘画、网点、素描、干刷或透明覆盖/);
+  assert.match(route, /背景拆成二至四个真实区域\/结构家族/);
+  assert.match(route, /至少三个方向/);
+  assert.match(route, /撕口不是固定窗口/);
+  assert.match(route, /主体紧边抠图/);
   assert.match(route, /默认优先无字/);
 
-  assert.match(runtime, /横图默认输出5:3，竖图默认输出3:5/);
-  assert.match(runtime, /一处占页面约45%至65%的主要摄影开口/);
-  assert.match(runtime, /主体安全优先/);
-  assert.match(runtime, /摄影开口内部保持原照片自然色彩、光线、纹理、身份、脸、表情、姿态、手、解剖、衣服/);
+  assert.match(runtime, /横图默认5:3，竖图默认3:5/);
+  assert.match(runtime, /通常约28%至58%，绝对不得超过整页60%/);
+  assert.match(runtime, /P内部从撕边到撕边只能是原图自然摄影/);
+  assert.match(runtime, /禁止网点、素描、干刷、拓印、透明颜料/);
   assert.match(runtime, /最多两种相容的粗网点、复印点、干刷丝网、石墨拓印、浮雕印影或稀疏机械线/);
-  assert.match(runtime, /约1%至4%的断续覆盖/);
-  assert.match(runtime, /全部二维平整/);
+  assert.match(runtime, /至少三个外部方向/);
+  assert.match(runtime, /成品二维平整/);
 });
 
 test("gathered scenes sends only the original edit target and uses skill-native ratios", async () => {
@@ -86,7 +87,11 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /inlineImageForBrowser/);
   assert.match(taskRoute, /reviewScenePaperCollage/);
   assert.match(taskRoute, /subjectGeometryPass/);
-  assert.match(taskRoute, /requiredMotifPass/);
+  assert.match(taskRoute, /photoDomainCoveragePass/);
+  assert.match(taskRoute, /photoDomainPurityPass/);
+  assert.match(taskRoute, /relationshipBoundaryPass/);
+  assert.match(taskRoute, /outsideBackgroundPresencePass/);
+  assert.match(taskRoute, /sourceTraceabilityPass/);
   assert.match(taskRoute, /shouldRetry/);
 });
 
@@ -97,12 +102,12 @@ test("empty or malformed photo analysis falls back without blocking collage gene
   assert.match(route, /Array\.isArray\(content\)/);
   assert.match(route, /function scenePaperCollageFallbackPlan/);
   assert.match(route, /if \(adapter\.id === "gathered-scenes"\)[\s\S]*plan = scenePaperCollageFallbackPlan\(body, instruction \|\| "", sceneBackgroundPlan\)/);
-  assert.match(route, /一处占页面约45%至65%/);
-  assert.match(route, /只从原图中选择一至两个清楚可见/);
+  assert.match(route, /目标约28%至58%，硬上限60%/);
+  assert.match(route, /只从P域之外原照片背景/);
   assert.match(route, /max_tokens: adapter\.id === "gathered-scenes" \? 4200/);
 });
 
-test("paper background uses active source-derived primary and secondary print fields", async () => {
+test("relationship analysis separates the photo domain from source-derived background zones", async () => {
   const route = await readFile(routePath, "utf8");
   const runtime = await readFile(runtimePath, "utf8");
 
@@ -110,28 +115,32 @@ test("paper background uses active source-derived primary and secondary print fi
   assert.match(route, /compileSceneBackgroundPlan/);
   assert.match(route, /subjectBox/);
   assert.match(route, /subjectAnchors/);
-  assert.match(route, /中心位移不得超过画布宽高的3%/);
-  assert.match(route, /宽高变化不得超过5%/);
+  assert.match(route, /supportObjects/);
+  assert.match(route, /photoDomainBox/);
+  assert.match(route, /photoDomainTargetPercent/);
+  assert.match(route, /boundaryLogic/);
+  assert.match(route, /backgroundZones/);
+  assert.match(route, /中心位移不得超过画布宽高的2%/);
+  assert.match(route, /宽高变化不得超过3%/);
   assert.match(route, /禁止平移、放大、缩小、旋转、镜像、透视校正、重新取景/);
   assert.match(route, /不要生成后再把原图主体覆盖或粘贴回来/);
-  assert.match(route, /motifs 为1至2项，优先给出2项/);
-  assert.match(route, /池塘场景若清楚可见荷叶、荷花或睡莲/);
-  assert.match(route, /第一项必须选择这些圆叶或花朵/);
-  assert.match(route, /纸面至少保留三处可辨认的轮廓或节奏/);
-  assert.match(route, /原照片背景的绘画化转译/);
-  assert.match(route, /主印刷场必须与对应景物所在的撕口边缘相接/);
-  assert.match(route, /次级场景回声/);
-  assert.match(route, /放大约1\.5至3倍/);
-  assert.match(route, /影响约45%至65%的可见纸面/);
-  assert.match(route, /实际墨覆盖约18%至32%/);
-  assert.match(route, /不能退化成只有几根边缘短线或大面积空白/);
+  assert.match(route, /鸭脚下的局部岩石/);
+  assert.match(route, /人物扶着的栏柱/);
+  assert.match(route, /古建筑群连续的山体基座/);
+  assert.match(route, /backgroundZones 返回2至4项/);
+  assert.match(route, /荷塘至少考虑荷叶\/水面\/岩石/);
+  assert.match(route, /天然重复结构至少保留三处可辨轮廓或节奏/);
+  assert.match(route, /P域之外只允许转译这些原图背景区域/);
+  assert.match(route, /至少三个方向或跨两侧加远端/);
+  assert.match(route, /影响约45%至75%的外部纸面/);
+  assert.match(route, /实际墨覆盖约16%至32%/);
+  assert.match(route, /背景近乎空白/);
   assert.match(route, /通用城市素描，库存树木/);
   assert.match(route, /建筑蓝图，地图线，工程草图/);
-  assert.match(route, /每一个可辨认形状都必须能指回原图/);
-  assert.match(runtime, /开口外必须把原照片背景绘画化/);
-  assert.match(runtime, /一个与对应撕口相接的主印刷场/);
-  assert.match(runtime, /可隔着留白分布到另一侧/);
-  assert.match(runtime, /只有细小边缘毛刺、几根零星短划或近乎空白直接判定失败/);
+  assert.match(route, /无法从原图指出来源/);
+  assert.match(runtime, /I必须来自同一照片P域之外的剩余背景/);
+  assert.match(runtime, /主印刷场与对应撕边相接/);
+  assert.match(runtime, /近乎空白、只有一侧或零星短线失败/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {
@@ -142,6 +151,7 @@ test("failed collage candidates are corrected once without redesigning successfu
   assert.match(route, /仅修正这一项/);
   assert.match(route, /不要重新设计成功部分/);
   assert.match(route, /只指出观察到的失败项，不重新设计已成功部分/);
-  assert.match(route, /摄影区域明显不是一处主要开口/);
-  assert.match(route, /开口是矩形、圆角矩形、对称徽章、贴纸白边或紧贴主体的数码蒙版/);
+  assert.match(route, /只有一处摄影域/);
+  assert.match(route, /摄影域超过整页60%/);
+  assert.match(route, /摄影域内部任何明显网点、素描、干刷、拓印、透明颜料或局部重绘/);
 });
