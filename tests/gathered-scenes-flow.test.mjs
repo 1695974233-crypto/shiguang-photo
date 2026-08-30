@@ -33,11 +33,12 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(route, /const scenePaperCollageCompilerContract/);
   assert.match(route, /摄影域通常28%至58%，绝对不得超过60%/);
   assert.match(route, /finalPrompt 必须按四段编写/);
-  assert.match(route, /主体—支撑物—背景关系/);
-  assert.match(route, /摄影域内主体、必要接触\/支撑物和最少关系环境/);
-  assert.match(route, /禁止任何绘画、网点、素描、干刷或透明覆盖/);
-  assert.match(route, /背景拆成二至四个真实区域\/结构家族/);
-  assert.match(route, /至少三个方向/);
+  assert.match(route, /SOURCE_BACKGROUND_WHITELIST/);
+  assert.match(route, /SOURCE_EVIDENCE/);
+  assert.match(route, /摄影域内主体、必要接触或支撑部分和最少关系环境/);
+  assert.match(route, /禁止任何绘画处理/);
+  assert.match(route, /外部任何可辨对象只能来自这一闭集/);
+  assert.match(route, /不得自行增加类别、典型场景元素或装饰物/);
   assert.match(route, /撕口不是固定窗口/);
   assert.match(route, /主体紧边抠图/);
   assert.match(route, /默认优先无字/);
@@ -45,9 +46,9 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(runtime, /横图默认5:3，竖图默认3:5/);
   assert.match(runtime, /通常约28%至58%，绝对不得超过整页60%/);
   assert.match(runtime, /P内部从撕边到撕边只能是原图自然摄影/);
-  assert.match(runtime, /禁止网点、素描、干刷、拓印、透明颜料/);
-  assert.match(runtime, /最多两种相容的粗网点、复印点、干刷丝网、石墨拓印、浮雕印影或稀疏机械线/);
-  assert.match(runtime, /至少三个外部方向/);
+  assert.match(runtime, /禁止任何绘画处理/);
+  assert.match(runtime, /SOURCE_BACKGROUND_WHITELIST 闭集/);
+  assert.match(runtime, /绝不能依据地点、题材、主体类别或常见构图补充对象/);
   assert.match(runtime, /成品二维平整/);
 });
 
@@ -92,6 +93,8 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /relationshipBoundaryPass/);
   assert.match(taskRoute, /outsideBackgroundPresencePass/);
   assert.match(taskRoute, /sourceTraceabilityPass/);
+  assert.match(taskRoute, /unverifiedExteriorObjects/);
+  assert.match(taskRoute, /hardBlock/);
   assert.match(taskRoute, /shouldRetry/);
 });
 
@@ -124,23 +127,41 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /宽高变化不得超过3%/);
   assert.match(route, /禁止平移、放大、缩小、旋转、镜像、透视校正、重新取景/);
   assert.match(route, /不要生成后再把原图主体覆盖或粘贴回来/);
-  assert.match(route, /鸭脚下的局部岩石/);
-  assert.match(route, /人物扶着的栏柱/);
-  assert.match(route, /古建筑群连续的山体基座/);
-  assert.match(route, /backgroundZones 返回2至4项/);
-  assert.match(route, /荷塘至少考虑荷叶\/水面\/岩石/);
+  assert.match(route, /objectClass/);
+  assert.match(route, /sourceBox/);
+  assert.match(route, /visualEvidence/);
+  assert.match(route, /confidence/);
+  assert.match(route, /backgroundZones 返回1至4项/);
+  assert.match(route, /宁可只返回一个高置信对象，也不要凑数/);
+  assert.doesNotMatch(route, /荷塘应转译|海边转译|桥边转译|古建转译|荷塘至少考虑/);
+  assert.doesNotMatch(route, /鸭脚下的局部岩石|人物扶着的栏柱|古建筑群连续的山体基座/);
   assert.match(route, /天然重复结构至少保留三处可辨轮廓或节奏/);
-  assert.match(route, /P域之外只允许转译这些原图背景区域/);
-  assert.match(route, /至少三个方向或跨两侧加远端/);
+  assert.match(route, /SOURCE_BACKGROUND_WHITELIST（闭集）/);
+  assert.match(route, /任何未列入白名单的可辨对象都禁止出现/);
   assert.match(route, /影响约45%至75%的外部纸面/);
   assert.match(route, /实际墨覆盖约16%至32%/);
   assert.match(route, /背景近乎空白/);
-  assert.match(route, /通用城市素描，库存树木/);
-  assert.match(route, /建筑蓝图，地图线，工程草图/);
-  assert.match(route, /无法从原图指出来源/);
+  assert.match(route, /任何无法匹配 SOURCE_EVIDENCE 的形状/);
   assert.match(runtime, /I必须来自同一照片P域之外的剩余背景/);
   assert.match(runtime, /主印刷场与对应撕边相接/);
-  assert.match(runtime, /近乎空白、只有一侧或零星短线失败/);
+  assert.match(runtime, /任何可辨形状无法指回原图均失败/);
+});
+
+test("source-background whitelist blocks prompt contamination and unverified exterior objects", async () => {
+  const route = await readFile(routePath, "utf8");
+  const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
+  const page = await readFile(pagePath, "utf8");
+
+  assert.match(route, /allowedBackgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
+  assert.match(route, /sourceBackgroundWhitelist/);
+  assert.match(route, /confidence < 0\.72/);
+  assert.match(route, /任何未列入SOURCE_BACKGROUND_WHITELIST的可辨对象/);
+  assert.doesNotMatch(route, /原图没有的楼房，原图没有的栏杆，原图没有的道路，原图没有的桥/);
+  assert.match(taskRoute, /exteriorObjectsDetected/);
+  assert.match(taskRoute, /unverifiedExteriorObjects/);
+  assert.match(taskRoute, /verifiedTraceabilityPass/);
+  assert.match(taskRoute, /hardBlock: !verifiedTraceabilityPass/);
+  assert.match(page, /最终检查发现纸裁外部仍有原图无法验证的元素/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {

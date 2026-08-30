@@ -40,6 +40,7 @@ type GenerationResponse = {
   localEdit?: PortraitRelightSpec;
   localComposite?: RealScenePaperCompositeSpec;
   shouldRetry?: boolean;
+  hardBlock?: boolean;
   pendingTask?: {
     id: string;
     pollAfterMs?: number;
@@ -52,8 +53,14 @@ type GenerationResponse = {
       photoDomainBox?: { x: number; y: number; width: number; height: number };
       photoDomainTargetPercent?: number;
       boundaryLogic?: string;
-      requiredBackgroundZones?: string[];
-      forbidden?: string[];
+      allowedBackgroundZones?: Array<{
+        name?: string;
+        objectClass?: string;
+        sourceBox?: { x?: number; y?: number; width?: number; height?: number };
+        sourceLocation?: string;
+        visualEvidence?: string;
+        confidence?: number;
+      }>;
     };
   };
 };
@@ -202,6 +209,7 @@ export default function Home() {
               qualityWarning?: string[];
               qualityCorrection?: string;
               shouldRetry?: boolean;
+              hardBlock?: boolean;
             };
             if (!taskResponse.ok) throw new Error(taskData.error || "读取生图结果失败。");
             consecutiveNetworkFailures = 0;
@@ -212,6 +220,7 @@ export default function Home() {
                 qualityWarning: taskData.qualityWarning,
                 qualityCorrection: taskData.qualityCorrection,
                 shouldRetry: taskData.shouldRetry,
+                hardBlock: taskData.hardBlock,
               };
               break;
             }
@@ -231,6 +240,9 @@ export default function Home() {
         setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "摄影域或外部背景分区不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
         await requestGeneration(mode, refinement, data.qualityCorrection, automaticRetryAttempt + 1);
         return;
+      }
+      if (selectedScene.id === "gathered-scenes" && data.hardBlock) {
+        throw new Error("最终检查发现纸裁外部仍有原图无法验证的元素，本次候选已拦截，不会作为成图交付。你的照片和设置都已保留，请点击生成图片再试一次。");
       }
       if (automaticRetryAttempt > 0) data.autoRetried = true;
       const nextImage = data.localEdit
