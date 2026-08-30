@@ -243,8 +243,8 @@ subjectBox 紧贴主体本身；supportObjects 只列与主体发生直接物理
         const visualEvidence = compactText(zone.visualEvidence, 180);
         const edgeConnection = compactText(zone.edgeConnection, 100);
         const direction = compactText(zone.direction, 100);
-        const confidence = Math.min(1, Math.max(0, safeNumber(zone.confidence, 0)));
-        if (!name || !objectClass || !sourceLocation || !visualEvidence || !edgeConnection || !direction || confidence < 0.72) return [];
+        const confidence = Math.min(1, Math.max(0, safeNumber(zone.confidence, 1)));
+        if (!name || !objectClass || !sourceLocation || !visualEvidence || !edgeConnection || !direction || confidence < 0.55) return [];
         const requestedTreatment = compactText(zone.treatment, 20);
         return [{
           name,

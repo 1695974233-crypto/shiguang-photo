@@ -93,7 +93,7 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /relationshipBoundaryPass/);
   assert.match(taskRoute, /outsideBackgroundPresencePass/);
   assert.match(taskRoute, /sourceTraceabilityPass/);
-  assert.match(taskRoute, /unverifiedExteriorObjects/);
+  assert.match(taskRoute, /confirmedInventedExteriorObjects/);
   assert.match(taskRoute, /hardBlock/);
   assert.match(taskRoute, /shouldRetry/);
 });
@@ -147,21 +147,24 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(runtime, /任何可辨形状无法指回原图均失败/);
 });
 
-test("source-background whitelist blocks prompt contamination and unverified exterior objects", async () => {
+test("source image is primary evidence and only confirmed invented exterior objects hard-block", async () => {
   const route = await readFile(routePath, "utf8");
   const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
   const page = await readFile(pagePath, "utf8");
 
   assert.match(route, /allowedBackgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
   assert.match(route, /sourceBackgroundWhitelist/);
-  assert.match(route, /confidence < 0\.72/);
+  assert.match(route, /confidence < 0\.55/);
   assert.match(route, /任何未列入SOURCE_BACKGROUND_WHITELIST的可辨对象/);
   assert.doesNotMatch(route, /原图没有的楼房，原图没有的栏杆，原图没有的道路，原图没有的桥/);
   assert.match(taskRoute, /exteriorObjectsDetected/);
-  assert.match(taskRoute, /unverifiedExteriorObjects/);
+  assert.match(taskRoute, /confirmedInventedExteriorObjects/);
+  assert.match(taskRoute, /uncertainExteriorMarks/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
-  assert.match(taskRoute, /hardBlock: !verifiedTraceabilityPass/);
-  assert.match(page, /最终检查发现纸裁外部仍有原图无法验证的元素/);
+  assert.match(taskRoute, /hardBlock: confirmedInventedExteriorObjects\.length > 0/);
+  assert.doesNotMatch(taskRoute, /shouldRetry:.*!verifiedTraceabilityPass/);
+  assert.match(taskRoute, /第一张原图本身是最高优先级证据/);
+  assert.match(page, /最终检查确认纸裁外部仍出现原图不存在的元素/);
 });
 
 test("failed collage candidates are corrected once without redesigning successful parts", async () => {

@@ -37,7 +37,9 @@ type TaskQualityReview = {
   shouldRetry: boolean;
   hardBlock: boolean;
   exteriorObjectsDetected: string[];
-  unverifiedExteriorObjects: string[];
+  sourceMatchedExteriorObjects: string[];
+  confirmedInventedExteriorObjects: string[];
+  uncertainExteriorMarks: string[];
   issues: string[];
   correction: string;
 };
@@ -126,9 +128,9 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
         const name = typeof item.name === "string" ? item.name.trim().replace(/\s+/g, " ").slice(0, 60) : objectClass;
         const sourceLocation = typeof item.sourceLocation === "string" ? item.sourceLocation.trim().replace(/\s+/g, " ").slice(0, 140) : "";
         const visualEvidence = typeof item.visualEvidence === "string" ? item.visualEvidence.trim().replace(/\s+/g, " ").slice(0, 220) : "";
-        const confidence = typeof item.confidence === "number" && Number.isFinite(item.confidence) ? Math.min(1, Math.max(0, item.confidence)) : 0;
+        const confidence = typeof item.confidence === "number" && Number.isFinite(item.confidence) ? Math.min(1, Math.max(0, item.confidence)) : 1;
         const sourceBoxInput = item.sourceBox && typeof item.sourceBox === "object" ? item.sourceBox : {};
-        if (!objectClass || !sourceLocation || !visualEvidence || confidence < 0.72) return [];
+        if (!objectClass || !sourceLocation || !visualEvidence || confidence < 0.55) return [];
         return [{
           name,
           objectClass,
@@ -155,9 +157,9 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
 
 P摄影域定义：${photoDomain}。分析建议包围框 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。P必须只有一处，包含主体与必要支撑物，排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。
 
-I背景绘画域必须来自原图P域之外的剩余背景。SOURCE_BACKGROUND_WHITELIST（闭集）=${JSON.stringify(sourceBackgroundWhitelist)}。SOURCE_EVIDENCE=${JSON.stringify(allowedBackgroundZones)}。白名单不可扩展：先完整列出候选成图纸裁外部的每一种可辨对象类别，包括低对比、局部、网点化、拓印化或被裁切的对象；再逐项与第一张原图及 SOURCE_EVIDENCE 对照。只有类别在白名单中，并且颜色、轮廓、纹理、位置关系能由对应证据框支持，才算已验证。任何白名单外对象、地点或题材联想对象、补全出的对象、或无法匹配证据框的对象都写入 unverifiedExteriorObjects，并令 sourceTraceabilityPass=false。不得因为对象风格化、很淡、只露一部分或看起来适合场景而放过。若白名单为空，外部只能有非对象化的源色、明暗、颗粒、纹理和方向痕迹，任何可辨对象都属于未验证。白名单对象应在外部多个方向形成足够可见的同源绘画分布；若近乎空白或只有撕边毛刺和零星短线，令 outsideBackgroundPresencePass=false。
+I背景绘画域必须来自原图P域之外的剩余背景。SOURCE_BACKGROUND_WHITELIST=${JSON.stringify(sourceBackgroundWhitelist)}。SOURCE_EVIDENCE=${JSON.stringify(allowedBackgroundZones)}。第一张原图本身是最高优先级证据；白名单和证据框只是帮助你定位，不得替代对原图的直接观察，也不得因为同义类别名称不同、画法简化、重新编排位置或证据表为空就判定新增。先完整列出候选成图纸裁外部的每一种可辨对象类别，包括低对比、局部、网点化、拓印化或被裁切的对象；再逐项在第一张原图P域之外寻找同类可见对象。能在原图直接找到同类来源的写入 sourceMatchedExteriorObjects；只有当原图中明确完全不存在该类别时，才写入 confirmedInventedExteriorObjects；因痕迹过于抽象、类别不确定或证据不足而无法判断的写入 uncertainExteriorMarks，不得当成明确新增。confirmedInventedExteriorObjects 非空才令 sourceTraceabilityPass=false。白名单对象应在外部形成足够可见的同源绘画分布；若近乎空白或只有撕边毛刺和零星短线，令 outsideBackgroundPresencePass=false。
 
-只输出 JSON：{"score":0至100,"subjectGeometryPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"outsideBackgroundPresencePass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorObjectsDetected":["候选纸裁外部实际可辨对象类别"],"unverifiedExteriorObjects":["无法由白名单和原图证据支持的类别"],"issues":["最多六项具体可见问题"],"correction":"只写给下一次图像编辑的纠偏指令；先删除所有未验证外部对象，不得替换成另一对象；其他成功部分保持不动；不得建议后贴原图"}。只要 unverifiedExteriorObjects 非空，sourceTraceabilityPass 必须为 false、score 不得高于55。六项任一为 false，score 不得高于78。` },
+只输出 JSON：{"score":0至100,"subjectGeometryPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"outsideBackgroundPresencePass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorObjectsDetected":["候选纸裁外部实际可辨对象类别"],"sourceMatchedExteriorObjects":["可在原图P域之外直接找到同类来源的类别"],"confirmedInventedExteriorObjects":["确认在原图中完全不存在的类别"],"uncertainExteriorMarks":["无法可靠判定类别或来源的抽象痕迹"],"issues":["最多六项具体可见问题"],"correction":"只写给下一次图像编辑的纠偏指令；删除确认新增的外部对象，不得替换成另一对象；其他成功部分保持不动；不得建议后贴原图"}。confirmedInventedExteriorObjects 非空时 sourceTraceabilityPass 必须为 false、score 不得高于55。六项任一为 false，score 不得高于78。` },
         { role: "user", content: [
           { type: "image_url", image_url: { url: sourceImage } },
           { type: "image_url", image_url: { url: outputImage } },
@@ -183,21 +185,25 @@ I背景绘画域必须来自原图P域之外的剩余背景。SOURCE_BACKGROUND_
   const backgroundPresencePass = parsed.outsideBackgroundPresencePass === true;
   const traceabilityPass = parsed.sourceTraceabilityPass === true;
   const exteriorObjectsDetected = cleanStrings(parsed.exteriorObjectsDetected, 80, 12);
-  const unverifiedExteriorObjects = cleanStrings(parsed.unverifiedExteriorObjects, 80, 12);
-  const verifiedTraceabilityPass = traceabilityPass && unverifiedExteriorObjects.length === 0;
+  const sourceMatchedExteriorObjects = cleanStrings(parsed.sourceMatchedExteriorObjects, 80, 12);
+  const confirmedInventedExteriorObjects = cleanStrings(parsed.confirmedInventedExteriorObjects, 80, 12);
+  const uncertainExteriorMarks = cleanStrings(parsed.uncertainExteriorMarks, 80, 12);
+  const verifiedTraceabilityPass = traceabilityPass && confirmedInventedExteriorObjects.length === 0;
   const score = typeof parsed.score === "number" && Number.isFinite(parsed.score) ? Math.min(100, Math.max(0, parsed.score)) : 0;
   const pass = geometryPass && coveragePass && purityPass && boundaryPass && backgroundPresencePass && verifiedTraceabilityPass && score >= 88;
   return {
     score,
     pass,
-    shouldRetry: !geometryPass || !coveragePass || !purityPass || !boundaryPass || !backgroundPresencePass || !verifiedTraceabilityPass,
-    hardBlock: !verifiedTraceabilityPass,
+    shouldRetry: !geometryPass || !coveragePass || !purityPass || !boundaryPass || !backgroundPresencePass || confirmedInventedExteriorObjects.length > 0,
+    hardBlock: confirmedInventedExteriorObjects.length > 0,
     exteriorObjectsDetected,
-    unverifiedExteriorObjects,
+    sourceMatchedExteriorObjects,
+    confirmedInventedExteriorObjects,
+    uncertainExteriorMarks,
     issues: cleanStrings(parsed.issues, 180, 6),
     correction: typeof parsed.correction === "string"
       ? parsed.correction.trim().slice(0, 900)
-      : `删除纸裁外部所有无法由SOURCE_BACKGROUND_WHITELIST和SOURCE_EVIDENCE验证的对象${unverifiedExteriorObjects.length ? `：${unverifiedExteriorObjects.join("、")}` : ""}；不得用其他对象替换。主体、摄影域位置大小和已通过的撕边保持不动，只用白名单对象或非对象化源图痕迹完成外部。`,
+      : `删除纸裁外部确认在原图中不存在的对象${confirmedInventedExteriorObjects.length ? `：${confirmedInventedExteriorObjects.join("、")}` : ""}；不得用其他对象替换。主体、摄影域位置大小和已通过的撕边保持不动，只用原图直接可见的同类背景或非对象化源图痕迹完成外部。`,
   };
 }
 
@@ -250,7 +256,9 @@ export async function POST(request: Request) {
       shouldRetry: qualityReview?.shouldRetry === true,
       hardBlock: qualityReview?.hardBlock === true,
       exteriorObjectsDetected: qualityReview?.exteriorObjectsDetected || [],
-      unverifiedExteriorObjects: qualityReview?.unverifiedExteriorObjects || [],
+      sourceMatchedExteriorObjects: qualityReview?.sourceMatchedExteriorObjects || [],
+      confirmedInventedExteriorObjects: qualityReview?.confirmedInventedExteriorObjects || [],
+      uncertainExteriorMarks: qualityReview?.uncertainExteriorMarks || [],
       qualityScore: qualityReview?.score,
     });
   } catch (error) {

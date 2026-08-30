@@ -41,6 +41,7 @@ type GenerationResponse = {
   localComposite?: RealScenePaperCompositeSpec;
   shouldRetry?: boolean;
   hardBlock?: boolean;
+  confirmedInventedExteriorObjects?: string[];
   pendingTask?: {
     id: string;
     pollAfterMs?: number;
@@ -210,6 +211,7 @@ export default function Home() {
               qualityCorrection?: string;
               shouldRetry?: boolean;
               hardBlock?: boolean;
+              confirmedInventedExteriorObjects?: string[];
             };
             if (!taskResponse.ok) throw new Error(taskData.error || "读取生图结果失败。");
             consecutiveNetworkFailures = 0;
@@ -221,6 +223,7 @@ export default function Home() {
                 qualityCorrection: taskData.qualityCorrection,
                 shouldRetry: taskData.shouldRetry,
                 hardBlock: taskData.hardBlock,
+                confirmedInventedExteriorObjects: taskData.confirmedInventedExteriorObjects,
               };
               break;
             }
@@ -242,7 +245,8 @@ export default function Home() {
         return;
       }
       if (selectedScene.id === "gathered-scenes" && data.hardBlock) {
-        throw new Error("最终检查发现纸裁外部仍有原图无法验证的元素，本次候选已拦截，不会作为成图交付。你的照片和设置都已保留，请点击生成图片再试一次。");
+        const invented = data.confirmedInventedExteriorObjects?.slice(0, 3).join("、");
+        throw new Error(`最终检查确认纸裁外部仍出现原图不存在的元素${invented ? `：${invented}` : ""}。本次候选已拦截，不会作为成图交付；你的照片和设置都已保留。`);
       }
       if (automaticRetryAttempt > 0) data.autoRetried = true;
       const nextImage = data.localEdit
