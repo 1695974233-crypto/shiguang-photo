@@ -41,6 +41,7 @@ type GenerationResponse = {
   localComposite?: RealScenePaperCompositeSpec;
   shouldRetry?: boolean;
   hardBlock?: boolean;
+  hardBlockReason?: string;
   confirmedInventedExteriorObjects?: string[];
   prohibitedExteriorArtifacts?: string[];
   pendingTask?: {
@@ -212,6 +213,7 @@ export default function Home() {
               qualityCorrection?: string;
               shouldRetry?: boolean;
               hardBlock?: boolean;
+              hardBlockReason?: string;
               confirmedInventedExteriorObjects?: string[];
               prohibitedExteriorArtifacts?: string[];
             };
@@ -225,6 +227,7 @@ export default function Home() {
                 qualityCorrection: taskData.qualityCorrection,
                 shouldRetry: taskData.shouldRetry,
                 hardBlock: taskData.hardBlock,
+                hardBlockReason: taskData.hardBlockReason,
                 confirmedInventedExteriorObjects: taskData.confirmedInventedExteriorObjects,
                 prohibitedExteriorArtifacts: taskData.prohibitedExteriorArtifacts,
               };
@@ -248,6 +251,9 @@ export default function Home() {
         return;
       }
       if (selectedScene.id === "gathered-scenes" && data.hardBlock) {
+        if (data.hardBlockReason) {
+          throw new Error(`最终检查确认${data.hardBlockReason}。本次候选已拦截，不会作为成图交付；你的照片和设置都已保留。`);
+        }
         const invented = data.confirmedInventedExteriorObjects?.slice(0, 3).join("、");
         const artifacts = data.prohibitedExteriorArtifacts?.slice(0, 3).join("、");
         const reason = invented

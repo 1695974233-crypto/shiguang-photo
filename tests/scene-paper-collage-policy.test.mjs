@@ -6,6 +6,7 @@ import {
   parseExteriorElementAudit,
   prohibitedExteriorArtifacts,
   scenePaperCollageFullPageTopology,
+  scenePaperCollageSeparationContrast,
 } from "../app/scene-paper-collage-policy.ts";
 
 test("the page has two content domains and material never becomes a blank third domain", () => {
@@ -14,6 +15,15 @@ test("the page has two content domains and material never becomes a blank third 
   assert.match(scenePaperCollageFullPageTopology, /P之外的每一个位置都属于I/);
   assert.match(scenePaperCollageFullPageTopology, /不能只是模型没有生成内容后剩下的默认白纸/);
   assert.match(scenePaperCollageFullPageTopology, /至少两处源图背景结构，或一处宽阔连续的背景表面/);
+});
+
+test("photo subject and printed background remain unmistakably different materials", () => {
+  assert.match(scenePaperCollageSeparationContrast, /缩略图尺度一眼分清P与I/);
+  assert.match(scenePaperCollageSeparationContrast, /闭合、不规则、非矩形摄影岛/);
+  assert.match(scenePaperCollageSeparationContrast, /不得让P触碰或占满两条以上成图边缘/);
+  assert.match(scenePaperCollageSeparationContrast, /不是原背景的水彩滤镜/);
+  assert.match(scenePaperCollageSeparationContrast, /最多使用两种相容印刷语言/);
+  assert.match(scenePaperCollageSeparationContrast, /细节密度都必须显著低于P/);
 });
 
 test("required paper and print treatments are material, not invented scene elements", () => {

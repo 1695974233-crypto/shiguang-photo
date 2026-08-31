@@ -44,6 +44,10 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(route, /不存在第三块空白画板/);
   assert.match(route, /I占据P之外的全部页面/);
   assert.match(route, /至少两处背景结构或一处宽阔背景表面/);
+  assert.match(route, /闭合、不规则摄影岛/);
+  assert.match(route, /贯穿画布的撕缝机械分半/);
+  assert.match(route, /淡化照片、连续水彩重绘或另一块近似摄影/);
+  assert.match(route, /缩略图尺度必须一眼分清自然摄影P和纸上版画I/);
   assert.match(route, /不能留下未处理画板/);
   assert.match(route, /撕口不是固定窗口/);
   assert.match(route, /主体紧边抠图/);
@@ -100,12 +104,15 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /photoDomainCoveragePass/);
   assert.match(taskRoute, /photoDomainPurityPass/);
   assert.match(taskRoute, /relationshipBoundaryPass/);
+  assert.match(taskRoute, /subjectSeparationPass/);
   assert.match(taskRoute, /outsideBackgroundPresencePass/);
   assert.match(taskRoute, /fullPageBackgroundPass/);
+  assert.match(taskRoute, /backgroundPrintStylePass/);
   assert.match(taskRoute, /boundaryContinuityPass/);
   assert.match(taskRoute, /sourceTraceabilityPass/);
   assert.match(taskRoute, /confirmedInventedExteriorObjects/);
   assert.match(taskRoute, /hardBlock/);
+  assert.match(taskRoute, /主体相对原图发生了位置、大小、方向或取景变化/);
   assert.match(taskRoute, /shouldRetry/);
 });
 
@@ -161,7 +168,7 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(runtime, /任何可辨场景形状无法指回原图均失败/);
 });
 
-test("source image is primary evidence and only absent scene elements or prohibited artifacts hard-block", async () => {
+test("source image is primary evidence and confirmed source or subject-geometry failures hard-block", async () => {
   const route = await readFile(routePath, "utf8");
   const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
   const page = await readFile(pagePath, "utf8");
@@ -179,7 +186,7 @@ test("source image is primary evidence and only absent scene elements or prohibi
   assert.match(taskRoute, /prohibitedExteriorArtifacts/);
   assert.match(taskRoute, /exteriorElementAudit/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
-  assert.match(taskRoute, /hardBlock: !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
+  assert.match(taskRoute, /hardBlock: !geometryPass \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
   assert.match(taskRoute, /只有 scene_element 才与第一张原图P域之外逐项核对/);
   assert.match(taskRoute, /拼贴材料永远不能因为原图中没有纸张而令其失败/);
   assert.match(taskRoute, /第一张原图本身是最高优先级证据/);

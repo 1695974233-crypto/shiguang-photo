@@ -44,6 +44,9 @@ type TaskQualityReview = {
   pass: boolean;
   shouldRetry: boolean;
   hardBlock: boolean;
+  hardBlockReason: string;
+  subjectSeparationPass: boolean;
+  backgroundPrintStylePass: boolean;
   fullPageBackgroundPass: boolean;
   boundaryContinuityPass: boolean;
   exteriorObjectsDetected: string[];
@@ -168,20 +171,20 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
 
 主体锁定对象：${subject}。原图主体归一化边界框为 ${JSON.stringify(subjectBox)}；不可改变的接触关系：${anchors.length ? anchors.join("；") : "保持主体与原支撑物和环境的接触关系"}；必须一起保留的必要支撑/接触物：${supportObjects.length ? supportObjects.join("、") : "只保留实际接触或承托主体的必要部分"}。候选主体中心相对画布偏移超过2%，或宽度/高度变化超过3%，或发生旋转、镜像、透视改变、重新取景、姿态改变，就令 subjectGeometryPass=false。
 
-P摄影域定义：${photoDomain}。分析建议包围框 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。P必须只有一处，包含主体与必要支撑物，排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。
+P摄影域定义：${photoDomain}。分析建议包围框 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。P必须只有一处，包含主体与必要支撑物，排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。默认撕口必须是一处围住主体关系域的闭合不规则摄影岛；除非主体在原图本来被边缘裁断，否则P触碰或占满两条以上成图边缘、贯穿画布形成机械分半、主体明显不在摄影岛视觉中心附近、或撕边没有把主体与大部分普通背景清楚分开，都令 subjectSeparationPass=false。
 
 	${scenePaperCollageLayerOntology}
 	${scenePaperCollageFullPageTopology}
 
-I背景绘画域必须占据P之外的全部页面，并来自原图P域之外的剩余背景。SOURCE_BACKGROUND_WHITELIST=${JSON.stringify(sourceBackgroundWhitelist)}。SOURCE_EVIDENCE=${JSON.stringify(allowedBackgroundZones)}。第一张原图本身是最高优先级证据；白名单和证据框只是帮助定位场景语义，不得替代对原图的直接观察，也不得因为同义类别名称不同、画法简化或证据表为空就判定新增。若P外出现只能解释为“没有生成内容”的默认白纸、未分配画板或独立空白内容区，令 fullPageBackgroundPass=false；原图本来安静或明亮的区域可以接近纸色，但必须仍看出源背景的颜色、明暗、纹理、方向或空间作用。比较撕边两侧同一背景的方位、透视、方向、尺度和层级；若没有至少两处结构或一处宽阔背景表面保持连续，或者整体像照片贴到另一张背景上，令 boundaryContinuityPass=false。
+I背景绘画域必须占据P之外的全部页面，并来自原图P域之外的剩余背景。SOURCE_BACKGROUND_WHITELIST=${JSON.stringify(sourceBackgroundWhitelist)}。SOURCE_EVIDENCE=${JSON.stringify(allowedBackgroundZones)}。第一张原图本身是最高优先级证据；白名单和证据框只是帮助定位场景语义，不得替代对原图的直接观察，也不得因为同义类别名称不同、画法简化或证据表为空就判定新增。若P外出现只能解释为“没有生成内容”的默认白纸、未分配画板或独立空白内容区，令 fullPageBackgroundPass=false；原图本来安静或明亮的区域可以接近纸色，但必须仍看出源背景的颜色、明暗、纹理、方向或空间作用。I必须是暖纸上最多两种相容印刷语言形成的低对比版画/拓印域，显著降低饱和度、连续色阶、清晰边缘和微小细节；若外部像淡化照片、半透明照片、连续水彩滤镜、完整全彩重绘，或在缩略图尺度无法立刻与P自然摄影区分，令 backgroundPrintStylePass=false。比较撕边两侧同一背景的方位、透视、方向、尺度和层级；若没有至少两处结构或一处宽阔背景表面保持连续，或者整体像照片贴到另一张背景上，令 boundaryContinuityPass=false。
 
 先把候选成图纸裁外部的每一种成分写入 exteriorElementAudit，再分类：场景实体、环境表面和可辨结构归入 scene_element；纸张、撕边、印刷与扫描工艺归入 collage_material；不能稳定识别为具体场景事物的痕迹归入 abstract_mark；Logo、水印、界面、样机和立体纸层归入 prohibited_artifact。只有 scene_element 才与第一张原图P域之外逐项核对：能直接找到同类来源标记 matched；确认原图完全没有该语义类别才标记 absent；因遮挡、抽象或证据不足无法判断则标记 uncertain。collage_material 和 prohibited_artifact 的 provenance 都写 not_applicable。风格词不能冒充场景类别，例如“网点化的树”的 sourceClass 仍是“树”，“网点印刷颗粒”才是材料。只有存在 provenance=absent 的 scene_element 才令 sourceTraceabilityPass=false；拼贴材料永远不能因为原图中没有纸张而令其失败。白名单场景元素应与源色、明暗、纹理和方向共同形成覆盖全部P外区域的同源背景构图；若有可靠背景证据却近乎空白或只有撕边毛刺和零星材料纹理，令 outsideBackgroundPresencePass=false。白名单为空时，仍须使用源色、明暗、纹理和方向构成全幅 abstract_mark 背景场，不得据此虚构 scene_element，也不得退化成默认空白纸。
 
-只输出 JSON：{"score":0至100,"subjectGeometryPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
+只输出 JSON：{"score":0至100,"subjectGeometryPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"subjectSeparationPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"backgroundPrintStylePass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。subjectGeometryPass=false 时 score 不得高于55。subjectSeparationPass 或 backgroundPrintStylePass 为 false 时 score 不得高于62。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
         { role: "user", content: [
           { type: "image_url", image_url: { url: sourceImage } },
           { type: "image_url", image_url: { url: outputImage } },
-          { type: "text", text: "比较原图和候选，分别检查主体几何、摄影域面积、摄影域纯净度、关系型撕边、P外是否全部属于同源背景、撕边两侧空间连续性和源图可追溯性。" },
+          { type: "text", text: "比较原图和候选，分别检查主体几何、闭合摄影岛是否围住主体并排除大部分背景、摄影域面积与纯净度、P外是否为明显区别于摄影的低细节版画、全幅背景归属、撕边两侧空间连续性和源图可追溯性。" },
         ] },
       ],
       response_format: { type: "json_object" },
@@ -200,8 +203,10 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   const coveragePass = parsed.photoDomainCoveragePass === true;
   const purityPass = parsed.photoDomainPurityPass === true;
   const boundaryPass = parsed.relationshipBoundaryPass === true;
+  const subjectSeparationPass = parsed.subjectSeparationPass === true;
   const backgroundPresencePass = parsed.outsideBackgroundPresencePass === true;
   const fullPageBackgroundPass = parsed.fullPageBackgroundPass === true;
+  const backgroundPrintStylePass = parsed.backgroundPrintStylePass === true;
   const boundaryContinuityPass = parsed.boundaryContinuityPass === true;
   const exteriorElementAudit = parseExteriorElementAudit(parsed.exteriorElementAudit);
   const exteriorObjectsDetected = exteriorElementAudit
@@ -219,7 +224,16 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   const verifiedTraceabilityPass = confirmedInventedExteriorObjects.length === 0;
   const artifactCompliancePass = prohibitedArtifacts.length === 0;
   const score = typeof parsed.score === "number" && Number.isFinite(parsed.score) ? Math.min(100, Math.max(0, parsed.score)) : 0;
-  const pass = geometryPass && coveragePass && purityPass && boundaryPass && backgroundPresencePass && fullPageBackgroundPass && boundaryContinuityPass && verifiedTraceabilityPass && artifactCompliancePass && score >= 88;
+  const pass = geometryPass && coveragePass && purityPass && boundaryPass && subjectSeparationPass && backgroundPresencePass && fullPageBackgroundPass && backgroundPrintStylePass && boundaryContinuityPass && verifiedTraceabilityPass && artifactCompliancePass && score >= 88;
+  const geometryCorrection = !geometryPass
+    ? `把主体恢复到原图归一化边界框${JSON.stringify(subjectBox)}：中心位移不超过2%，宽高变化不超过3%；禁止平移、缩放、旋转、镜像或重新取景。`
+    : "";
+  const separationCorrection = !subjectSeparationPass
+    ? "把摄影域重做成围住主体关系域的一处闭合、不规则摄影岛；除非原图主体本来被边缘裁断，否则不得触碰两条以上画布边缘或用贯穿画布的撕缝机械分半。"
+    : "";
+  const printStyleCorrection = !backgroundPrintStylePass
+    ? "只把撕口外背景改为暖纸上的低对比版画/拓印：最多两种印刷语言，删除连续水彩、淡化照片、全彩重绘和大部分微小细节；缩略图必须一眼分清外部版画与内部自然摄影。"
+    : "";
   const provenanceCorrection = confirmedInventedExteriorObjects.length
     ? `删除纸裁外部确认在原图中不存在的场景元素：${confirmedInventedExteriorObjects.join("、")}；不得用其他对象替换。`
     : "";
@@ -229,8 +243,17 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   return {
     score,
     pass,
-    shouldRetry: !geometryPass || !coveragePass || !purityPass || !boundaryPass || !backgroundPresencePass || !fullPageBackgroundPass || !boundaryContinuityPass || !verifiedTraceabilityPass || !artifactCompliancePass,
-    hardBlock: !verifiedTraceabilityPass || !artifactCompliancePass,
+    shouldRetry: !geometryPass || !coveragePass || !purityPass || !boundaryPass || !subjectSeparationPass || !backgroundPresencePass || !fullPageBackgroundPass || !backgroundPrintStylePass || !boundaryContinuityPass || !verifiedTraceabilityPass || !artifactCompliancePass,
+    hardBlock: !geometryPass || !verifiedTraceabilityPass || !artifactCompliancePass,
+    hardBlockReason: !geometryPass
+      ? "主体相对原图发生了位置、大小、方向或取景变化"
+      : !verifiedTraceabilityPass
+        ? `纸裁外部仍出现原图不存在的场景元素：${confirmedInventedExteriorObjects.slice(0, 3).join("、")}`
+        : !artifactCompliancePass
+          ? `画面仍出现产品不允许的伪影：${prohibitedArtifacts.slice(0, 3).join("、")}`
+          : "",
+    subjectSeparationPass,
+    backgroundPrintStylePass,
     fullPageBackgroundPass,
     boundaryContinuityPass,
     exteriorObjectsDetected,
@@ -241,8 +264,8 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
     prohibitedExteriorArtifacts: prohibitedArtifacts,
     exteriorElementAudit,
     issues: cleanStrings(parsed.issues, 180, 6),
-    correction: provenanceCorrection || artifactCorrection
-      ? `${provenanceCorrection}${artifactCorrection}主体、摄影域位置大小、合规纸张材料和已通过的撕边保持不动。`
+    correction: geometryCorrection || separationCorrection || printStyleCorrection || provenanceCorrection || artifactCorrection
+      ? `${geometryCorrection}${separationCorrection}${printStyleCorrection}${provenanceCorrection}${artifactCorrection}已通过的主体细节、接触关系、场景来源和合规纸张材料保持不动。`
       : typeof parsed.correction === "string"
         ? parsed.correction.trim().slice(0, 900)
         : "只修正未通过的几何、摄影域、撕边、全幅背景或边界连续性；保持其他成功部分不动。",
@@ -297,6 +320,7 @@ export async function POST(request: Request) {
       qualityCorrection: qualityReview && !qualityReview.pass ? qualityReview.correction : "",
       shouldRetry: qualityReview?.shouldRetry === true,
       hardBlock: qualityReview?.hardBlock === true,
+      hardBlockReason: qualityReview?.hardBlockReason || "",
       exteriorObjectsDetected: qualityReview?.exteriorObjectsDetected || [],
       sourceMatchedExteriorObjects: qualityReview?.sourceMatchedExteriorObjects || [],
       confirmedInventedExteriorObjects: qualityReview?.confirmedInventedExteriorObjects || [],
