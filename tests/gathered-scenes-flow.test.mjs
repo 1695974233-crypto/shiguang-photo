@@ -40,6 +40,11 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(route, /禁止任何绘画处理/);
   assert.match(route, /外部任何可辨场景元素只能来自这一闭集/);
   assert.match(route, /不得自行增加类别、典型场景元素或装饰物/);
+  assert.match(route, /P与I合起来铺满整张成图/);
+  assert.match(route, /不存在第三块空白画板/);
+  assert.match(route, /I占据P之外的全部页面/);
+  assert.match(route, /至少两处背景结构或一处宽阔背景表面/);
+  assert.match(route, /不能留下未处理画板/);
   assert.match(route, /撕口不是固定窗口/);
   assert.match(route, /主体紧边抠图/);
   assert.match(route, /默认优先无字/);
@@ -50,6 +55,9 @@ test("scene paper collage compiler enforces the source-scene two-material partit
   assert.match(runtime, /禁止任何绘画处理/);
   assert.match(runtime, /SOURCE_BACKGROUND_WHITELIST 场景语义闭集/);
   assert.match(runtime, /绝不能依据地点、题材、主体类别或常见构图补充场景元素/);
+  assert.match(runtime, /P之外的全部页面/);
+  assert.match(runtime, /不能形成第三块独立空白内容域/);
+  assert.match(runtime, /照片贴片感或两个场景拼接感失败/);
   assert.match(runtime, /成品二维平整/);
 });
 
@@ -93,6 +101,8 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /photoDomainPurityPass/);
   assert.match(taskRoute, /relationshipBoundaryPass/);
   assert.match(taskRoute, /outsideBackgroundPresencePass/);
+  assert.match(taskRoute, /fullPageBackgroundPass/);
+  assert.match(taskRoute, /boundaryContinuityPass/);
   assert.match(taskRoute, /sourceTraceabilityPass/);
   assert.match(taskRoute, /confirmedInventedExteriorObjects/);
   assert.match(taskRoute, /hardBlock/);
@@ -139,12 +149,15 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /天然重复结构至少保留三处可辨轮廓或节奏/);
   assert.match(route, /SOURCE_BACKGROUND_WHITELIST（场景语义闭集）/);
   assert.match(route, /任何未列入白名单的可辨场景元素都禁止出现/);
-  assert.match(route, /影响约45%至75%的外部纸面/);
-  assert.match(route, /实际墨覆盖约16%至32%/);
+  assert.match(route, /P域之外100%都属于I背景域/);
+  assert.match(route, /低密度背景/);
+  assert.match(route, /方位、透视、方向、尺度和层级对应/);
   assert.match(route, /背景近乎空白/);
+  assert.match(route, /未分配画板/);
+  assert.match(route, /照片贴在另一张背景上/);
   assert.match(route, /任何无法匹配 SOURCE_EVIDENCE 的场景语义形状/);
   assert.match(runtime, /I必须来自同一照片P域之外的剩余背景/);
-  assert.match(runtime, /主印刷场与对应撕边相接/);
+  assert.match(runtime, /形成连续全幅背景场/);
   assert.match(runtime, /任何可辨场景形状无法指回原图均失败/);
 });
 

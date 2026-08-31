@@ -5,7 +5,16 @@ import {
   isCollageMaterialOnly,
   parseExteriorElementAudit,
   prohibitedExteriorArtifacts,
+  scenePaperCollageFullPageTopology,
 } from "../app/scene-paper-collage-policy.ts";
+
+test("the page has two content domains and material never becomes a blank third domain", () => {
+  assert.match(scenePaperCollageFullPageTopology, /P∪I=C/);
+  assert.match(scenePaperCollageFullPageTopology, /不存在第三块未分配画板/);
+  assert.match(scenePaperCollageFullPageTopology, /P之外的每一个位置都属于I/);
+  assert.match(scenePaperCollageFullPageTopology, /不能只是模型没有生成内容后剩下的默认白纸/);
+  assert.match(scenePaperCollageFullPageTopology, /至少两处源图背景结构，或一处宽阔连续的背景表面/);
+});
 
 test("required paper and print treatments are material, not invented scene elements", () => {
   for (const label of [
