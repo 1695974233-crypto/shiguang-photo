@@ -104,8 +104,9 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /photoDomainAnchorPass/);
   assert.match(taskRoute, /observedSubjectBox/);
   assert.match(taskRoute, /observedPhotoDomainBox/);
-  assert.match(taskRoute, /整体中心相对这个源关系框偏移超过画布宽高4%/);
-  assert.match(taskRoute, /整体宽高偏离超过8%/);
+  assert.match(taskRoute, /4%中心偏移和8%宽高变化是纠偏目标/);
+  assert.match(taskRoute, /domainDelta\.x <= 0\.04 && domainDelta\.y <= 0\.04/);
+  assert.match(taskRoute, /domainSizeDelta\.width <= 0\.08/);
   assert.match(taskRoute, /photoDomainCoveragePass/);
   assert.match(taskRoute, /photoDomainPurityPass/);
   assert.match(taskRoute, /relationshipBoundaryPass/);
@@ -185,7 +186,7 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(runtime, /任何可辨场景形状无法指回原图均失败/);
 });
 
-test("source image is primary evidence and confirmed source or subject-geometry failures hard-block", async () => {
+test("source image is primary evidence and only confident source or geometry failures hard-block", async () => {
   const route = await readFile(routePath, "utf8");
   const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
   const page = await readFile(pagePath, "utf8");
@@ -203,7 +204,12 @@ test("source image is primary evidence and confirmed source or subject-geometry 
   assert.match(taskRoute, /prohibitedExteriorArtifacts/);
   assert.match(taskRoute, /exteriorElementAudit/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
-  assert.match(taskRoute, /hardBlock: !geometryPass \|\| !photoDomainAnchorPass \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
+  assert.match(taskRoute, /const confidentGeometryFailure = parsed\.subjectGeometryPass === false && obviousMeasuredGeometryDrift/);
+  assert.match(taskRoute, /const confidentDomainAnchorFailure = parsed\.photoDomainAnchorPass === false && obviousMeasuredDomainDrift/);
+  assert.match(taskRoute, /subjectDelta\.x > 0\.08 \|\| subjectDelta\.y > 0\.08/);
+  assert.match(taskRoute, /domainDelta\.x > 0\.10 \|\| domainDelta\.y > 0\.10/);
+  assert.match(taskRoute, /hardBlock: confidentGeometryFailure \|\| confidentDomainAnchorFailure \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
+  assert.doesNotMatch(taskRoute, /hardBlock: !geometryPass/);
   assert.match(taskRoute, /只有 scene_element 才与第一张原图P域之外逐项核对/);
   assert.match(taskRoute, /拼贴材料永远不能因为原图中没有纸张而令其失败/);
   assert.match(taskRoute, /第一张原图本身是最高优先级证据/);
