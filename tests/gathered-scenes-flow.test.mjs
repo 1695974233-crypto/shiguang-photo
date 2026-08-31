@@ -101,6 +101,11 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /inlineImageForBrowser/);
   assert.match(taskRoute, /reviewScenePaperCollage/);
   assert.match(taskRoute, /subjectGeometryPass/);
+  assert.match(taskRoute, /photoDomainAnchorPass/);
+  assert.match(taskRoute, /observedSubjectBox/);
+  assert.match(taskRoute, /observedPhotoDomainBox/);
+  assert.match(taskRoute, /整体中心相对这个源关系框偏移超过画布宽高4%/);
+  assert.match(taskRoute, /整体宽高偏离超过8%/);
   assert.match(taskRoute, /photoDomainCoveragePass/);
   assert.match(taskRoute, /photoDomainPurityPass/);
   assert.match(taskRoute, /relationshipBoundaryPass/);
@@ -113,6 +118,8 @@ test("gathered scenes uses a short async submission and a separate task poll rou
   assert.match(taskRoute, /confirmedInventedExteriorObjects/);
   assert.match(taskRoute, /hardBlock/);
   assert.match(taskRoute, /主体相对原图发生了位置、大小、方向或取景变化/);
+  assert.match(taskRoute, /纸裁整体位置或大小偏离了原图主体关系域/);
+  assert.doesNotMatch(taskRoute, /主体明显不在摄影岛视觉中心附近/);
   assert.match(taskRoute, /shouldRetry/);
 });
 
@@ -131,6 +138,7 @@ test("empty or malformed photo analysis falls back without blocking collage gene
 test("relationship analysis separates the photo domain from source-derived background zones", async () => {
   const route = await readFile(routePath, "utf8");
   const runtime = await readFile(runtimePath, "utf8");
+  const taskRoute = await readFile(new URL("../app/api/generate/task/route.ts", import.meta.url), "utf8");
 
   assert.match(route, /type SceneBackgroundPlan/);
   assert.match(route, /compileSceneBackgroundPlan/);
@@ -138,6 +146,15 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /subjectAnchors/);
   assert.match(route, /supportObjects/);
   assert.match(route, /photoDomainBox/);
+  assert.match(route, /photoDomainAnchorRule/);
+  assert.match(route, /relationshipDomainFallback/);
+  assert.match(taskRoute, /fallbackDomainBox = relationshipDomainFallback\(subjectBox\)/);
+  assert.doesNotMatch(taskRoute, /x: number\(domainBoxSource\.x, 0\.25\)/);
+  assert.match(route, /原图完整画幅作为固定坐标系/);
+  assert.match(route, /P的整体中心不得偏移超过画布宽高的4%/);
+  assert.match(route, /整体宽高不得偏离超过8%/);
+  assert.match(route, /不要求主体位于框中心/);
+  assert.match(route, /禁止为了版式平衡把P或主体移向左上、中央或任何固定象限/);
   assert.match(route, /photoDomainTargetPercent/);
   assert.match(route, /boundaryLogic/);
   assert.match(route, /backgroundZones/);
@@ -186,7 +203,7 @@ test("source image is primary evidence and confirmed source or subject-geometry 
   assert.match(taskRoute, /prohibitedExteriorArtifacts/);
   assert.match(taskRoute, /exteriorElementAudit/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
-  assert.match(taskRoute, /hardBlock: !geometryPass \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
+  assert.match(taskRoute, /hardBlock: !geometryPass \|\| !photoDomainAnchorPass \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
   assert.match(taskRoute, /只有 scene_element 才与第一张原图P域之外逐项核对/);
   assert.match(taskRoute, /拼贴材料永远不能因为原图中没有纸张而令其失败/);
   assert.match(taskRoute, /第一张原图本身是最高优先级证据/);

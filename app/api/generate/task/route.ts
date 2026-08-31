@@ -45,6 +45,7 @@ type TaskQualityReview = {
   shouldRetry: boolean;
   hardBlock: boolean;
   hardBlockReason: string;
+  photoDomainAnchorPass: boolean;
   subjectSeparationPass: boolean;
   backgroundPrintStylePass: boolean;
   fullPageBackgroundPass: boolean;
@@ -59,6 +60,8 @@ type TaskQualityReview = {
   issues: string[];
   correction: string;
 };
+
+type NormalizedBox = { x: number; y: number; width: number; height: number };
 
 type DashScopeTaskResponse = {
   output?: {
@@ -115,6 +118,42 @@ function cleanStrings(value: unknown, maximum: number, count: number) {
     : [];
 }
 
+function reviewBox(value: unknown): NormalizedBox | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (![raw.x, raw.y, raw.width, raw.height].every((item) => typeof item === "number" && Number.isFinite(item))) return null;
+  const width = Math.min(1, Math.max(0.01, raw.width as number));
+  const height = Math.min(1, Math.max(0.01, raw.height as number));
+  return {
+    x: Math.min(1 - width, Math.max(0, raw.x as number)),
+    y: Math.min(1 - height, Math.max(0, raw.y as number)),
+    width,
+    height,
+  };
+}
+
+function centerDelta(left: NormalizedBox, right: NormalizedBox) {
+  return {
+    x: Math.abs((left.x + left.width / 2) - (right.x + right.width / 2)),
+    y: Math.abs((left.y + left.height / 2) - (right.y + right.height / 2)),
+  };
+}
+
+function relationshipDomainFallback(subjectBox: NormalizedBox): NormalizedBox {
+  const marginX = Math.min(0.12, Math.max(0.06, subjectBox.width * 0.18));
+  const marginY = Math.min(0.12, Math.max(0.06, subjectBox.height * 0.18));
+  const x = Math.max(0, subjectBox.x - marginX);
+  const y = Math.max(0, subjectBox.y - marginY);
+  const leftMargin = subjectBox.x - x;
+  const topMargin = subjectBox.y - y;
+  return {
+    x,
+    y,
+    width: Math.min(1 - x, leftMargin + subjectBox.width + Math.min(marginX, 1 - subjectBox.x - subjectBox.width)),
+    height: Math.min(1 - y, topMargin + subjectBox.height + Math.min(marginY, 1 - subjectBox.y - subjectBox.height)),
+  };
+}
+
 async function reviewScenePaperCollage(sourceImage: string, outputImage: string, context: ReviewContext): Promise<TaskQualityReview> {
   const apiKey = process.env.ARK_API_KEY?.trim();
   if (!apiKey) throw new Error("质量检查尚未配置。");
@@ -122,16 +161,17 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
   const box = context.subjectBox && typeof context.subjectBox === "object" ? context.subjectBox : {};
   const number = (value: unknown, fallback: number) => typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : fallback;
   const subjectBox = {
-    x: number(box.x, 0.3), y: number(box.y, 0.2),
-    width: number(box.width, 0.4), height: number(box.height, 0.6),
+    x: number(box.x, 0.35), y: number(box.y, 0.3),
+    width: number(box.width, 0.3), height: number(box.height, 0.4),
   };
   const anchors = cleanStrings(context.subjectAnchors, 80, 3);
   const supportObjects = cleanStrings(context.supportObjects, 80, 4);
   const photoDomain = typeof context.photoDomain === "string" ? context.photoDomain.trim().slice(0, 240) : "主体、必要接触物和最少关系环境";
   const domainBoxSource = context.photoDomainBox && typeof context.photoDomainBox === "object" ? context.photoDomainBox : {};
+  const fallbackDomainBox = relationshipDomainFallback(subjectBox);
   const photoDomainBox = {
-    x: number(domainBoxSource.x, 0.22), y: number(domainBoxSource.y, 0.18),
-    width: number(domainBoxSource.width, 0.56), height: number(domainBoxSource.height, 0.64),
+    x: number(domainBoxSource.x, fallbackDomainBox.x), y: number(domainBoxSource.y, fallbackDomainBox.y),
+    width: number(domainBoxSource.width, fallbackDomainBox.width), height: number(domainBoxSource.height, fallbackDomainBox.height),
   };
   const photoDomainTargetPercent = typeof context.photoDomainTargetPercent === "number" && Number.isFinite(context.photoDomainTargetPercent)
     ? Math.min(58, Math.max(28, context.photoDomainTargetPercent))
@@ -171,7 +211,7 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
 
 主体锁定对象：${subject}。原图主体归一化边界框为 ${JSON.stringify(subjectBox)}；不可改变的接触关系：${anchors.length ? anchors.join("；") : "保持主体与原支撑物和环境的接触关系"}；必须一起保留的必要支撑/接触物：${supportObjects.length ? supportObjects.join("、") : "只保留实际接触或承托主体的必要部分"}。候选主体中心相对画布偏移超过2%，或宽度/高度变化超过3%，或发生旋转、镜像、透视改变、重新取景、姿态改变，就令 subjectGeometryPass=false。
 
-P摄影域定义：${photoDomain}。分析建议包围框 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。P必须只有一处，包含主体与必要支撑物，排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。默认撕口必须是一处围住主体关系域的闭合不规则摄影岛；除非主体在原图本来被边缘裁断，否则P触碰或占满两条以上成图边缘、贯穿画布形成机械分半、主体明显不在摄影岛视觉中心附近、或撕边没有把主体与大部分普通背景清楚分开，都令 subjectSeparationPass=false。
+P摄影域定义：${photoDomain}。原图关系域整体包围框为 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。候选P的整体中心相对这个源关系框偏移超过画布宽高4%，或整体宽高偏离超过8%，令 photoDomainAnchorPass=false；局部纤维起伏不算偏移。P必须只有一处，从原图主体位置向必要支撑物与少量关系环境生长，包含主体与必要支撑物并排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。默认撕口必须是一处围住主体关系域的闭合不规则摄影岛；主体可以按原图关系位于摄影岛内任一偏侧，不要求接近摄影岛视觉中心。除非主体在原图本来被边缘裁断，否则P触碰或占满两条以上成图边缘、贯穿画布形成机械分半、把P或主体移向左上/中央/任何固定象限、或撕边没有把主体与大部分普通背景清楚分开，都令 subjectSeparationPass=false。
 
 	${scenePaperCollageLayerOntology}
 	${scenePaperCollageFullPageTopology}
@@ -180,17 +220,17 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
 
 先把候选成图纸裁外部的每一种成分写入 exteriorElementAudit，再分类：场景实体、环境表面和可辨结构归入 scene_element；纸张、撕边、印刷与扫描工艺归入 collage_material；不能稳定识别为具体场景事物的痕迹归入 abstract_mark；Logo、水印、界面、样机和立体纸层归入 prohibited_artifact。只有 scene_element 才与第一张原图P域之外逐项核对：能直接找到同类来源标记 matched；确认原图完全没有该语义类别才标记 absent；因遮挡、抽象或证据不足无法判断则标记 uncertain。collage_material 和 prohibited_artifact 的 provenance 都写 not_applicable。风格词不能冒充场景类别，例如“网点化的树”的 sourceClass 仍是“树”，“网点印刷颗粒”才是材料。只有存在 provenance=absent 的 scene_element 才令 sourceTraceabilityPass=false；拼贴材料永远不能因为原图中没有纸张而令其失败。白名单场景元素应与源色、明暗、纹理和方向共同形成覆盖全部P外区域的同源背景构图；若有可靠背景证据却近乎空白或只有撕边毛刺和零星材料纹理，令 outsideBackgroundPresencePass=false。白名单为空时，仍须使用源色、明暗、纹理和方向构成全幅 abstract_mark 背景场，不得据此虚构 scene_element，也不得退化成默认空白纸。
 
-只输出 JSON：{"score":0至100,"subjectGeometryPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"subjectSeparationPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"backgroundPrintStylePass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。subjectGeometryPass=false 时 score 不得高于55。subjectSeparationPass 或 backgroundPrintStylePass 为 false 时 score 不得高于62。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
+只输出 JSON：{"score":0至100,"observedSubjectBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"observedPhotoDomainBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"subjectGeometryPass":布尔值,"photoDomainAnchorPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"subjectSeparationPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"backgroundPrintStylePass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。observedSubjectBox必须紧贴候选中的同一主体；observedPhotoDomainBox必须是候选唯一摄影域的整体包围框。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。subjectGeometryPass=false 时 score 不得高于55。photoDomainAnchorPass、subjectSeparationPass 或 backgroundPrintStylePass 为 false 时 score 不得高于62。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
         { role: "user", content: [
           { type: "image_url", image_url: { url: sourceImage } },
           { type: "image_url", image_url: { url: outputImage } },
-          { type: "text", text: "比较原图和候选，分别检查主体几何、闭合摄影岛是否围住主体并排除大部分背景、摄影域面积与纯净度、P外是否为明显区别于摄影的低细节版画、全幅背景归属、撕边两侧空间连续性和源图可追溯性。" },
+          { type: "text", text: "比较原图和候选，先测量并返回候选主体与唯一摄影域在完整画布中的归一化包围框，再检查主体几何、摄影域是否锚定原图关系坐标并围住主体、摄影域面积与纯净度、P外是否为明显区别于摄影的低细节版画、全幅背景归属、撕边两侧空间连续性和源图可追溯性。" },
         ] },
       ],
       response_format: { type: "json_object" },
       reasoning_effort: "minimal",
       temperature: 0,
-      max_tokens: 1000,
+      max_tokens: 1100,
     }),
     signal: AbortSignal.timeout(40_000),
   });
@@ -199,7 +239,20 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   const content = compilerMessageText(data.choices?.[0]?.message?.content);
   if (!content) throw new Error("质量检查没有返回结果。");
   const parsed = JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as Record<string, unknown>;
-  const geometryPass = parsed.subjectGeometryPass === true;
+  const observedSubjectBox = reviewBox(parsed.observedSubjectBox);
+  const observedPhotoDomainBox = reviewBox(parsed.observedPhotoDomainBox);
+  const subjectDelta = observedSubjectBox ? centerDelta(observedSubjectBox, subjectBox) : null;
+  const measuredGeometryPass = Boolean(observedSubjectBox && subjectDelta
+    && subjectDelta.x <= 0.02 && subjectDelta.y <= 0.02
+    && Math.abs(observedSubjectBox.width - subjectBox.width) <= 0.03
+    && Math.abs(observedSubjectBox.height - subjectBox.height) <= 0.03);
+  const domainDelta = observedPhotoDomainBox ? centerDelta(observedPhotoDomainBox, photoDomainBox) : null;
+  const measuredDomainAnchorPass = Boolean(observedPhotoDomainBox && domainDelta
+    && domainDelta.x <= 0.04 && domainDelta.y <= 0.04
+    && Math.abs(observedPhotoDomainBox.width - photoDomainBox.width) <= 0.08
+    && Math.abs(observedPhotoDomainBox.height - photoDomainBox.height) <= 0.08);
+  const geometryPass = parsed.subjectGeometryPass === true && measuredGeometryPass;
+  const photoDomainAnchorPass = parsed.photoDomainAnchorPass === true && measuredDomainAnchorPass;
   const coveragePass = parsed.photoDomainCoveragePass === true;
   const purityPass = parsed.photoDomainPurityPass === true;
   const boundaryPass = parsed.relationshipBoundaryPass === true;
@@ -224,12 +277,15 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   const verifiedTraceabilityPass = confirmedInventedExteriorObjects.length === 0;
   const artifactCompliancePass = prohibitedArtifacts.length === 0;
   const score = typeof parsed.score === "number" && Number.isFinite(parsed.score) ? Math.min(100, Math.max(0, parsed.score)) : 0;
-  const pass = geometryPass && coveragePass && purityPass && boundaryPass && subjectSeparationPass && backgroundPresencePass && fullPageBackgroundPass && backgroundPrintStylePass && boundaryContinuityPass && verifiedTraceabilityPass && artifactCompliancePass && score >= 88;
+  const pass = geometryPass && photoDomainAnchorPass && coveragePass && purityPass && boundaryPass && subjectSeparationPass && backgroundPresencePass && fullPageBackgroundPass && backgroundPrintStylePass && boundaryContinuityPass && verifiedTraceabilityPass && artifactCompliancePass && score >= 88;
   const geometryCorrection = !geometryPass
     ? `把主体恢复到原图归一化边界框${JSON.stringify(subjectBox)}：中心位移不超过2%，宽高变化不超过3%；禁止平移、缩放、旋转、镜像或重新取景。`
     : "";
   const separationCorrection = !subjectSeparationPass
-    ? "把摄影域重做成围住主体关系域的一处闭合、不规则摄影岛；除非原图主体本来被边缘裁断，否则不得触碰两条以上画布边缘或用贯穿画布的撕缝机械分半。"
+    ? "把摄影域重做成从原图主体位置向必要支撑物与少量关系环境生长的一处闭合、不规则摄影岛；主体不必位于岛内中心，不得把主体或摄影岛移向左上、中央或固定象限。除非原图主体本来被边缘裁断，否则不得触碰两条以上画布边缘或用贯穿画布的撕缝机械分半。"
+    : "";
+  const domainAnchorCorrection = !photoDomainAnchorPass
+    ? `把唯一摄影域的整体包围框恢复到原图关系坐标${JSON.stringify(photoDomainBox)}附近：整体中心偏移不超过4%，宽高偏差不超过8%；只调整撕边，不得移动、缩放或重画主体，也不要求主体位于撕口中心。`
     : "";
   const printStyleCorrection = !backgroundPrintStylePass
     ? "只把撕口外背景改为暖纸上的低对比版画/拓印：最多两种印刷语言，删除连续水彩、淡化照片、全彩重绘和大部分微小细节；缩略图必须一眼分清外部版画与内部自然摄影。"
@@ -243,15 +299,18 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   return {
     score,
     pass,
-    shouldRetry: !geometryPass || !coveragePass || !purityPass || !boundaryPass || !subjectSeparationPass || !backgroundPresencePass || !fullPageBackgroundPass || !backgroundPrintStylePass || !boundaryContinuityPass || !verifiedTraceabilityPass || !artifactCompliancePass,
-    hardBlock: !geometryPass || !verifiedTraceabilityPass || !artifactCompliancePass,
+    shouldRetry: !geometryPass || !photoDomainAnchorPass || !coveragePass || !purityPass || !boundaryPass || !subjectSeparationPass || !backgroundPresencePass || !fullPageBackgroundPass || !backgroundPrintStylePass || !boundaryContinuityPass || !verifiedTraceabilityPass || !artifactCompliancePass,
+    hardBlock: !geometryPass || !photoDomainAnchorPass || !verifiedTraceabilityPass || !artifactCompliancePass,
     hardBlockReason: !geometryPass
       ? "主体相对原图发生了位置、大小、方向或取景变化"
+      : !photoDomainAnchorPass
+        ? "纸裁整体位置或大小偏离了原图主体关系域"
       : !verifiedTraceabilityPass
         ? `纸裁外部仍出现原图不存在的场景元素：${confirmedInventedExteriorObjects.slice(0, 3).join("、")}`
         : !artifactCompliancePass
           ? `画面仍出现产品不允许的伪影：${prohibitedArtifacts.slice(0, 3).join("、")}`
           : "",
+    photoDomainAnchorPass,
     subjectSeparationPass,
     backgroundPrintStylePass,
     fullPageBackgroundPass,
@@ -264,8 +323,8 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
     prohibitedExteriorArtifacts: prohibitedArtifacts,
     exteriorElementAudit,
     issues: cleanStrings(parsed.issues, 180, 6),
-    correction: geometryCorrection || separationCorrection || printStyleCorrection || provenanceCorrection || artifactCorrection
-      ? `${geometryCorrection}${separationCorrection}${printStyleCorrection}${provenanceCorrection}${artifactCorrection}已通过的主体细节、接触关系、场景来源和合规纸张材料保持不动。`
+    correction: geometryCorrection || domainAnchorCorrection || separationCorrection || printStyleCorrection || provenanceCorrection || artifactCorrection
+      ? `${geometryCorrection}${domainAnchorCorrection}${separationCorrection}${printStyleCorrection}${provenanceCorrection}${artifactCorrection}已通过的主体细节、接触关系、场景来源和合规纸张材料保持不动。`
       : typeof parsed.correction === "string"
         ? parsed.correction.trim().slice(0, 900)
         : "只修正未通过的几何、摄影域、撕边、全幅背景或边界连续性；保持其他成功部分不动。",

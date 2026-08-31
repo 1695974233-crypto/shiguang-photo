@@ -20,6 +20,9 @@ test("the page has two content domains and material never becomes a blank third 
 test("photo subject and printed background remain unmistakably different materials", () => {
   assert.match(scenePaperCollageSeparationContrast, /缩略图尺度一眼分清P与I/);
   assert.match(scenePaperCollageSeparationContrast, /闭合、不规则、非矩形摄影岛/);
+  assert.match(scenePaperCollageSeparationContrast, /不得为了版式平衡把撕口或主体移向左上、中央或任何固定象限/);
+  assert.match(scenePaperCollageSeparationContrast, /不要求接近撕口视觉中心/);
+  assert.match(scenePaperCollageSeparationContrast, /四周缓冲可以不等宽/);
   assert.match(scenePaperCollageSeparationContrast, /不得让P触碰或占满两条以上成图边缘/);
   assert.match(scenePaperCollageSeparationContrast, /不是原背景的水彩滤镜/);
   assert.match(scenePaperCollageSeparationContrast, /最多使用两种相容印刷语言/);
