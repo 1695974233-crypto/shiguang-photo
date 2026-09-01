@@ -7,6 +7,10 @@ import {
   scenePaperCollageFullPageTopology,
   scenePaperCollageLayerOntology,
 } from "../../../scene-paper-collage-policy";
+import {
+  subjectDomainRelationDelta,
+  subjectPositionInsideDomain,
+} from "../../../photo-domain-geometry";
 
 type TaskRequest = {
   taskId?: string;
@@ -173,8 +177,9 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
     x: number(domainBoxSource.x, fallbackDomainBox.x), y: number(domainBoxSource.y, fallbackDomainBox.y),
     width: number(domainBoxSource.width, fallbackDomainBox.width), height: number(domainBoxSource.height, fallbackDomainBox.height),
   };
+  const expectedSubjectInDomain = subjectPositionInsideDomain(subjectBox, photoDomainBox);
   const photoDomainTargetPercent = typeof context.photoDomainTargetPercent === "number" && Number.isFinite(context.photoDomainTargetPercent)
-    ? Math.min(58, Math.max(28, context.photoDomainTargetPercent))
+    ? Math.min(58, Math.max(16, context.photoDomainTargetPercent))
     : 46;
   const boundaryLogic = typeof context.boundaryLogic === "string" ? context.boundaryLogic.trim().slice(0, 200) : "顺着主体关系域与背景的天然空间分界";
   const allowedBackgroundZones = Array.isArray(context.allowedBackgroundZones)
@@ -211,7 +216,7 @@ async function reviewScenePaperCollage(sourceImage: string, outputImage: string,
 
 主体锁定对象：${subject}。原图主体归一化边界框为 ${JSON.stringify(subjectBox)}；不可改变的接触关系：${anchors.length ? anchors.join("；") : "保持主体与原支撑物和环境的接触关系"}；必须一起保留的必要支撑/接触物：${supportObjects.length ? supportObjects.join("、") : "只保留实际接触或承托主体的必要部分"}。2%中心偏移和3%宽高变化是纠偏目标，不是视觉模型可单独据此作确定拦截的精度声明。只有能明确观察到同一主体发生平移、缩放、旋转、镜像、透视改变、重新取景或姿态改变时，才令 subjectGeometryPass=false；边界框估测误差、撕边位置或背景画法变化不能单独令其失败。
 
-P摄影域定义：${photoDomain}。原图关系域整体包围框为 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。4%中心偏移和8%宽高变化是纠偏目标；只有能明确观察到整块摄影域相对原图主体关系域明显漂移或失去锚定时，才令 photoDomainAnchorPass=false，局部纤维起伏和包围框估测误差不算确定失败。P必须只有一处，从原图主体位置向必要支撑物与少量关系环境生长，包含主体与必要支撑物并排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。默认撕口必须是一处围住主体关系域的闭合不规则摄影岛；主体可以按原图关系位于摄影岛内任一偏侧，不要求接近摄影岛视觉中心。除非主体在原图本来被边缘裁断，否则P触碰或占满两条以上成图边缘、贯穿画布形成机械分半、把P或主体移向左上/中央/任何固定象限、或撕边没有把主体与大部分普通背景清楚分开，都令 subjectSeparationPass=false。
+P摄影域定义：${photoDomain}。原图关系域整体包围框为 ${JSON.stringify(photoDomainBox)}，目标约${Math.round(photoDomainTargetPercent)}%，但最终按可见撕口实际面积验收。主体中心在原图P内部的固定相对坐标为横向${Math.round(expectedSubjectInDomain.x * 100)}%、纵向${Math.round(expectedSubjectInDomain.y * 100)}%。4%中心偏移和8%宽高变化是纠偏目标；主体内部相对坐标偏差不得超过10%。只有能明确观察到整块摄影域相对原图主体关系域明显漂移、失去锚定，或吸入无关左上背景后把主体挤到P内部右下侧时，才令 photoDomainAnchorPass=false 或 photoDomainSubjectRelationPass=false，局部纤维起伏和包围框估测误差不算确定失败。P必须只有一处，从原图主体位置向必要支撑物与少量关系环境生长，包含主体与必要支撑物并排除大部分普通背景；实际面积超过整页60%令 photoDomainCoveragePass=false。P内部从撕边到撕边必须是自然原图摄影；任一明显网点、素描、干刷、拓印、透明颜料、局部重绘或绘画过渡都令 photoDomainPurityPass=false。撕边依据：${boundaryLogic}。若是固定窗口、矩形、圆角矩形、对称徽章、主体紧边抠图或与源图关系无关，令 relationshipBoundaryPass=false。默认撕口必须是一处围住主体关系域的闭合不规则摄影岛；主体可以按原图关系位于摄影岛内任一偏侧，不要求接近摄影岛视觉中心。除非主体在原图本来被边缘裁断，否则P触碰或占满两条以上成图边缘、贯穿画布形成机械分半、把P或主体移向左上/中央/任何固定象限、或撕边没有把主体与大部分普通背景清楚分开，都令 subjectSeparationPass=false。除非源关系域本来触边，候选P吸附左边、上边或左上角，同时主体在P内部相对位置明显向右下漂移，必须令 photoDomainSubjectRelationPass=false。
 
 	${scenePaperCollageLayerOntology}
 	${scenePaperCollageFullPageTopology}
@@ -220,7 +225,7 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
 
 先把候选成图纸裁外部的每一种成分写入 exteriorElementAudit，再分类：场景实体、环境表面和可辨结构归入 scene_element；纸张、撕边、印刷与扫描工艺归入 collage_material；不能稳定识别为具体场景事物的痕迹归入 abstract_mark；Logo、水印、界面、样机和立体纸层归入 prohibited_artifact。只有 scene_element 才与第一张原图P域之外逐项核对：能直接找到同类来源标记 matched；确认原图完全没有该语义类别才标记 absent；因遮挡、抽象或证据不足无法判断则标记 uncertain。collage_material 和 prohibited_artifact 的 provenance 都写 not_applicable。风格词不能冒充场景类别，例如“网点化的树”的 sourceClass 仍是“树”，“网点印刷颗粒”才是材料。只有存在 provenance=absent 的 scene_element 才令 sourceTraceabilityPass=false；拼贴材料永远不能因为原图中没有纸张而令其失败。白名单场景元素应与源色、明暗、纹理和方向共同形成覆盖全部P外区域的同源背景构图；若有可靠背景证据却近乎空白或只有撕边毛刺和零星材料纹理，令 outsideBackgroundPresencePass=false。白名单为空时，仍须使用源色、明暗、纹理和方向构成全幅 abstract_mark 背景场，不得据此虚构 scene_element，也不得退化成默认空白纸。
 
-只输出 JSON：{"score":0至100,"observedSubjectBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"observedPhotoDomainBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"subjectGeometryPass":布尔值,"photoDomainAnchorPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"subjectSeparationPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"backgroundPrintStylePass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。observedSubjectBox必须紧贴候选中的同一主体；observedPhotoDomainBox必须是候选唯一摄影域的整体包围框。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。subjectGeometryPass=false 时 score 不得高于55。photoDomainAnchorPass、subjectSeparationPass 或 backgroundPrintStylePass 为 false 时 score 不得高于62。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
+只输出 JSON：{"score":0至100,"observedSubjectBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"observedPhotoDomainBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"subjectGeometryPass":布尔值,"photoDomainAnchorPass":布尔值,"photoDomainSubjectRelationPass":布尔值,"photoDomainCoveragePass":布尔值,"photoDomainPurityPass":布尔值,"relationshipBoundaryPass":布尔值,"subjectSeparationPass":布尔值,"outsideBackgroundPresencePass":布尔值,"fullPageBackgroundPass":布尔值,"backgroundPrintStylePass":布尔值,"boundaryContinuityPass":布尔值,"sourceTraceabilityPass":布尔值,"exteriorElementAudit":[{"label":"候选外部实际可见成分","kind":"scene_element|collage_material|abstract_mark|prohibited_artifact","sourceClass":"去掉印刷风格后的场景语义类别；非场景元素为空字符串","provenance":"matched|absent|uncertain|not_applicable","evidence":"原图匹配证据或分类理由"}],"issues":["最多六项具体可见问题；不得把合规纸张或印刷材料写成新增场景对象"],"correction":"只写给下一次图像编辑的纠偏指令；只删除确认新增的场景元素或禁止伪影；其他成功部分保持不动；不得建议后贴原图"}。observedSubjectBox必须紧贴候选中的同一主体；observedPhotoDomainBox必须是候选唯一摄影域的整体包围框。存在 absent 的 scene_element 时 sourceTraceabilityPass 必须为 false、score 不得高于55。出现 prohibited_artifact 时 score 不得高于55。subjectGeometryPass=false 时 score 不得高于55。photoDomainAnchorPass、photoDomainSubjectRelationPass、subjectSeparationPass 或 backgroundPrintStylePass 为 false 时 score 不得高于62。fullPageBackgroundPass 或 boundaryContinuityPass 为 false 时 score 不得高于65。其余任一项为 false，score 不得高于78。` },
         { role: "user", content: [
           { type: "image_url", image_url: { url: sourceImage } },
           { type: "image_url", image_url: { url: outputImage } },
@@ -265,10 +270,19 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
   const obviousMeasuredDomainDrift = Boolean(domainDelta && domainSizeDelta
     && (domainDelta.x > 0.10 || domainDelta.y > 0.10
       || domainSizeDelta.width > 0.16 || domainSizeDelta.height > 0.16));
+  const subjectRelationDelta = observedSubjectBox && observedPhotoDomainBox
+    ? subjectDomainRelationDelta(subjectBox, photoDomainBox, observedSubjectBox, observedPhotoDomainBox)
+    : null;
+  const measuredSubjectRelationPass = Boolean(subjectRelationDelta
+    && subjectRelationDelta.x <= 0.10 && subjectRelationDelta.y <= 0.10);
+  const obviousMeasuredSubjectRelationDrift = Boolean(subjectRelationDelta
+    && (subjectRelationDelta.x > 0.20 || subjectRelationDelta.y > 0.20));
   const geometryPass = parsed.subjectGeometryPass === true && measuredGeometryPass;
-  const photoDomainAnchorPass = parsed.photoDomainAnchorPass === true && measuredDomainAnchorPass;
+  const subjectRelationPass = parsed.photoDomainSubjectRelationPass === true && measuredSubjectRelationPass;
+  const photoDomainAnchorPass = parsed.photoDomainAnchorPass === true && measuredDomainAnchorPass && subjectRelationPass;
   const confidentGeometryFailure = parsed.subjectGeometryPass === false && obviousMeasuredGeometryDrift;
-  const confidentDomainAnchorFailure = parsed.photoDomainAnchorPass === false && obviousMeasuredDomainDrift;
+  const confidentDomainAnchorFailure = (parsed.photoDomainAnchorPass === false && obviousMeasuredDomainDrift)
+    || (parsed.photoDomainSubjectRelationPass === false && obviousMeasuredSubjectRelationDrift);
   const coveragePass = parsed.photoDomainCoveragePass === true;
   const purityPass = parsed.photoDomainPurityPass === true;
   const boundaryPass = parsed.relationshipBoundaryPass === true;
@@ -301,7 +315,7 @@ I背景绘画域必须占据P之外的全部页面，并来自原图P域之外�
     ? "把摄影域重做成从原图主体位置向必要支撑物与少量关系环境生长的一处闭合、不规则摄影岛；主体不必位于岛内中心，不得把主体或摄影岛移向左上、中央或固定象限。除非原图主体本来被边缘裁断，否则不得触碰两条以上画布边缘或用贯穿画布的撕缝机械分半。"
     : "";
   const domainAnchorCorrection = !photoDomainAnchorPass
-    ? `把唯一摄影域的整体包围框恢复到原图关系坐标${JSON.stringify(photoDomainBox)}附近：整体中心偏移不超过4%，宽高偏差不超过8%；只调整撕边，不得移动、缩放或重画主体，也不要求主体位于撕口中心。`
+    ? `把唯一摄影域的整体包围框恢复到原图关系坐标${JSON.stringify(photoDomainBox)}附近：整体中心偏移不超过4%，宽高偏差不超过8%；主体中心在P内部恢复为横向${Math.round(expectedSubjectInDomain.x * 100)}%、纵向${Math.round(expectedSubjectInDomain.y * 100)}%，偏差不超过10%。删除为填充构图而吸入的左侧、上侧或左上方普通摄影背景；只调整撕边，不得移动、缩放或重画主体，也不要求主体位于撕口中心。`
     : "";
   const printStyleCorrection = !backgroundPrintStylePass
     ? "只把撕口外背景改为暖纸上的低对比版画/拓印：最多两种印刷语言，删除连续水彩、淡化照片、全彩重绘和大部分微小细节；缩略图必须一眼分清外部版画与内部自然摄影。"

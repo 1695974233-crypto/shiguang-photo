@@ -146,6 +146,9 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /subjectBox/);
   assert.match(route, /subjectAnchors/);
   assert.match(route, /supportObjects/);
+  assert.match(route, /relationshipEvidence/);
+  assert.match(route, /constrainPhotoDomainBox/);
+  assert.match(route, /geometryBoundTargetPercent/);
   assert.match(route, /photoDomainBox/);
   assert.match(route, /photoDomainAnchorRule/);
   assert.match(route, /relationshipDomainFallback/);
@@ -156,6 +159,8 @@ test("relationship analysis separates the photo domain from source-derived backg
   assert.match(route, /整体宽高不得偏离超过8%/);
   assert.match(route, /不要求主体位于框中心/);
   assert.match(route, /禁止为了版式平衡把P或主体移向左上、中央或任何固定象限/);
+  assert.match(route, /主体中心在P内部的固定相对坐标/);
+  assert.match(route, /不得把P吸附到左边、上边或任一画布角/);
   assert.match(route, /photoDomainTargetPercent/);
   assert.match(route, /boundaryLogic/);
   assert.match(route, /backgroundZones/);
@@ -205,7 +210,9 @@ test("source image is primary evidence and only confident source or geometry fai
   assert.match(taskRoute, /exteriorElementAudit/);
   assert.match(taskRoute, /verifiedTraceabilityPass/);
   assert.match(taskRoute, /const confidentGeometryFailure = parsed\.subjectGeometryPass === false && obviousMeasuredGeometryDrift/);
-  assert.match(taskRoute, /const confidentDomainAnchorFailure = parsed\.photoDomainAnchorPass === false && obviousMeasuredDomainDrift/);
+  assert.match(taskRoute, /photoDomainSubjectRelationPass/);
+  assert.match(taskRoute, /subjectDomainRelationDelta/);
+  assert.match(taskRoute, /const confidentDomainAnchorFailure = \(parsed\.photoDomainAnchorPass === false && obviousMeasuredDomainDrift\)/);
   assert.match(taskRoute, /subjectDelta\.x > 0\.08 \|\| subjectDelta\.y > 0\.08/);
   assert.match(taskRoute, /domainDelta\.x > 0\.10 \|\| domainDelta\.y > 0\.10/);
   assert.match(taskRoute, /hardBlock: confidentGeometryFailure \|\| confidentDomainAnchorFailure \|\| !verifiedTraceabilityPass \|\| !artifactCompliancePass/);
