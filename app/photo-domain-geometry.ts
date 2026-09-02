@@ -12,6 +12,13 @@ export type RelationshipEvidence = {
   confidence: number;
 };
 
+export type SubjectFrameContact = {
+  top: boolean;
+  right: boolean;
+  bottom: boolean;
+  left: boolean;
+};
+
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
@@ -31,6 +38,25 @@ export function normalizeBox(
 
 export function boxArea(box: NormalizedBox) {
   return box.width * box.height;
+}
+
+export function closeUnclippedPhotoDomain(
+  box: NormalizedBox,
+  contact: SubjectFrameContact,
+): NormalizedBox {
+  let left = box.x;
+  let top = box.y;
+  let right = box.x + box.width;
+  let bottom = box.y + box.height;
+  // The organic mask expands a little beyond its box. Keep a source-coordinate
+  // safety margin so a nominally closed tear cannot be clipped into a canvas
+  // bleed. A side may touch only when the photographed subject itself is
+  // visibly cut by that side of the source frame.
+  if (!contact.left) left = Math.max(0.045, left);
+  if (!contact.top) top = Math.max(0.045, top);
+  if (!contact.right) right = Math.min(0.955, right);
+  if (!contact.bottom) bottom = Math.min(0.955, bottom);
+  return { x: left, y: top, width: Math.max(0.01, right - left), height: Math.max(0.01, bottom - top) };
 }
 
 function unionBox(left: NormalizedBox, right: NormalizedBox): NormalizedBox {
@@ -134,7 +160,7 @@ export function constrainPhotoDomainBox(
     const gapY = axisGap(relationship.y, relationship.height, nearbyPart.y, nearbyPart.height);
     if (Math.hypot(gapX, gapY) > 0.06) continue;
     const candidate = unionBox(relationship, nearbyPart);
-    const evidenceAreaLimit = item.role === "direct_support" ? 0.64 : 0.58;
+    const evidenceAreaLimit = item.role === "direct_support" ? 0.60 : 0.54;
     if (boxArea(candidate) <= evidenceAreaLimit) relationship = candidate;
   }
 
@@ -144,11 +170,11 @@ export function constrainPhotoDomainBox(
 
   // A soft proposal can only affect the immediate relationship envelope. This is the
   // guard that prevents a large top-left proposal from dragging the final domain there.
-  const maximumEnvelope = expandBox(relationship, marginX + 0.16, marginY + 0.16);
+  const maximumEnvelope = expandBox(relationship, marginX + 0.08, marginY + 0.08);
   const proposed = normalizeBox(proposedInput, minimumDomain);
   const boundedProposal = intersectBox(proposed, maximumEnvelope);
   const candidate = boundedProposal ? unionBox(minimumDomain, boundedProposal) : minimumDomain;
-  return keepWithinArea(candidate, subject, 0.64);
+  return keepWithinArea(candidate, subject, 0.60);
 }
 
 export function subjectPositionInsideDomain(subject: NormalizedBox, domain: NormalizedBox) {

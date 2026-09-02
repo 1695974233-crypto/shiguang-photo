@@ -143,6 +143,7 @@ export default function Home() {
   function chooseScene(scene: Scene) {
     setSelectedScene(scene);
     setPreviewScene(scene);
+    if (scene.id === "gathered-scenes") setRatio("original");
     setError("");
     setQualityCorrection("");
     setStatus(source ? `已选择「${scene.name}」。可以补充文字或直接生成。` : `已选择「${scene.name}」。上传照片后即可生成。`);
@@ -160,7 +161,7 @@ export default function Home() {
     setStatus(isPixelRelight
       ? "正在定位人物并进行像素级补光，原照片不会交给生图模型重绘…"
       : selectedScene.id === "gathered-scenes"
-        ? "正在准备照片并提交拾景纸刊任务，提交后网页会自动取回结果…"
+        ? "正在识别主体与支撑关系，并用原图像素构建固定纸裁；不会把整张照片交给生图模型重绘…"
       : mode === "refine" ? "Skill 正在阅读上一版作品并编译本次修改…" : "Skill 正在阅读照片、选择构图并编译专属方案，然后再生成图片…");
 
     try {
@@ -243,8 +244,8 @@ export default function Home() {
         }
         if (!data.image) throw new Error("生成等待超过 10 分钟，请稍后再试。");
       }
-      if (!response.ok || (!data.image && !data.localEdit)) throw new Error(data.error || "生成失败，请稍后重试。");
-      if (selectedScene.id === "gathered-scenes" && data.shouldRetry && data.qualityCorrection && automaticRetryAttempt < 1) {
+      if (!response.ok || (!data.image && !data.localEdit && !data.localComposite)) throw new Error(data.error || "生成失败，请稍后重试。");
+      if (selectedScene.id === "gathered-scenes" && !data.localComposite && data.shouldRetry && data.qualityCorrection && automaticRetryAttempt < 1) {
         setQualityCorrection(data.qualityCorrection);
         setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "摄影域或外部背景分区不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
         await requestGeneration(mode, refinement, data.qualityCorrection, automaticRetryAttempt + 1);
@@ -267,7 +268,7 @@ export default function Home() {
       const nextImage = data.localEdit
         ? await applyPortraitRelight(inputImage, data.localEdit)
         : data.localComposite
-          ? await applyRealScenePaperComposite(inputImage, data.image!, data.localComposite)
+          ? await applyRealScenePaperComposite(inputImage, data.image || inputImage, data.localComposite)
           : data.image!;
       setResult(nextImage);
       setQualityCorrection(data.qualityCorrection || "");
@@ -283,7 +284,7 @@ export default function Home() {
         : selectedScene.id === "gathered-scenes"
           ? data.qualityWarning?.length
             ? `拾景纸刊已完成${modelStatus}，但最终检查仍发现：${data.qualityWarning.slice(0, 2).join("；")}。点击“再生成一次”会继续带上纠偏要求。`
-            : `拾景纸刊已完成${modelStatus}：主体几何、摄影域上限、内部摄影纯净度与外部原图背景均已进入最终检查，成图不会后贴原图主体。`
+            : `拾景纸刊已完成${modelStatus}：主体使用原图同坐标像素，纸裁按主体与支撑关系生成，外部背景由同一原图转译为低对比版画。`
         : data.localComposite
           ? `结构记忆编辑已完成${modelStatus}：摄影区使用原图真实像素，抽象区只提炼画面关系。`
         : data.compositeWarning
@@ -416,8 +417,9 @@ export default function Home() {
         <div className="option-group">
           <span>画面比例</span>
           <div className="chip-row">
-            {ratios.map((item) => <button type="button" key={item.id} className={ratio === item.id ? "chip active" : "chip"} onClick={() => setRatio(item.id)}>{item.label}</button>)}
+            {ratios.map((item) => <button type="button" key={item.id} disabled={selectedScene?.id === "gathered-scenes" && item.id !== "original"} className={ratio === item.id ? "chip active" : "chip"} onClick={() => setRatio(item.id)}>{item.label}</button>)}
           </div>
+          {selectedScene?.id === "gathered-scenes" && <small>固定工作流保持原图比例与完整坐标，避免缩放或重新取景导致主体偏移。</small>}
         </div>
 
         <div className="access-code-box">
@@ -438,7 +440,7 @@ export default function Home() {
         <div className="generation-bar">
           <div>
             <strong>{selectedScene?.name ?? "尚未选择场景"}</strong>
-            <span>{selectedScene?.id === "portrait-relight" ? "保持原图比例 · 像素级后期" : `${selectedRatio} · ${textPosition}`}</span>
+            <span>{selectedScene?.id === "portrait-relight" ? "保持原图比例 · 像素级后期" : selectedScene?.id === "gathered-scenes" ? "保持原图比例 · 原像素固定纸裁" : `${selectedRatio} · ${textPosition}`}</span>
           </div>
           <button className="generate-button" type="button" disabled={!canGenerate} onClick={() => void requestGeneration("new")}>
             {isGenerating ? "生成中…" : "生成图片"}

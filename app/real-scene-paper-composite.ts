@@ -191,12 +191,17 @@ function structuralInk(label: string | undefined) {
   return [218, 77, 43] as const;
 }
 
-function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, height: number) {
+function createSourceDerivedPaperLayer(
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  grammar: RealScenePaperCompositeSpec["illustrationGrammar"] = "screen-print",
+) {
   // Work at printmaking scale: detailed enough for a fine halftone, but blurred
   // enough that leaves, gravel and water merge into a few calm scene-derived
   // masses. The chromatic accent is authored separately; it must never turn
   // every green source pixel into a fluorescent background block.
-  const longestSide = 420;
+  const longestSide = 840;
   const scale = Math.min(1, longestSide / Math.max(width, height));
   const workingWidth = Math.max(1, Math.round(width * scale));
   const workingHeight = Math.max(1, Math.round(height * scale));
@@ -205,7 +210,7 @@ function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, h
   workingCanvas.height = workingHeight;
   const working = workingCanvas.getContext("2d", { willReadFrequently: true });
   if (!working) throw new Error("浏览器无法准备同场景纸面转译。");
-  working.filter = "blur(10px) saturate(0.76) contrast(1.04)";
+  working.filter = "blur(5px) saturate(0.68) contrast(1.08)";
   drawCover(working, image, workingWidth, workingHeight);
   working.filter = "none";
   const pixels = working.getImageData(0, 0, workingWidth, workingHeight);
@@ -214,6 +219,12 @@ function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, h
   const slate = [47, 62, 65] as const;
   const stone = [126, 126, 112] as const;
   const olive = [128, 141, 104] as const;
+  const bayer4 = [
+    0, 8, 2, 10,
+    12, 4, 14, 6,
+    3, 11, 1, 9,
+    15, 7, 13, 5,
+  ] as const;
   for (let offset = 0; offset < pixels.data.length; offset += 4) {
     const red = sourcePixels[offset];
     const green = sourcePixels[offset + 1];
@@ -237,25 +248,53 @@ function createSourceDerivedPaperLayer(image: HTMLImageElement, width: number, h
     const greenSourceShape = green >= red + 5 && green >= blue + 4 && chroma >= 13;
     const deepSourceShape = luminance <= 112 && structure >= 0.24;
     const middleSourceShape = !greenSourceShape && luminance <= 176 && structure >= 0.3;
-    const ink = greenSourceShape ? olive : deepSourceShape ? slate : stone;
-    // Deterministic screen-print dropout: small, irregular pinholes and dry
-    // patches, never a visible checker/grid or enlarged source pixels.
+    const structuralColor = greenSourceShape ? olive : deepSourceShape ? slate : stone;
+    // A pale source-colour wash keeps sky, water, walls and other quiet
+    // surfaces traceable. The old binary threshold turned those regions into
+    // empty paper, which made the outer scene feel unfinished.
+    const sourceInk = [
+      sourcePixels[offset] * 0.48 + slate[0] * 0.52,
+      sourcePixels[offset + 1] * 0.48 + slate[1] * 0.52,
+      sourcePixels[offset + 2] * 0.48 + slate[2] * 0.52,
+    ] as const;
+    // Deterministic screen-print raster. A slightly jittered Bayer threshold
+    // turns continuous photographic tone into visible ink/paper decisions;
+    // this is materially different from merely fading the source photograph.
     const hash = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + x * y * 0.0017) * 43758.5453) % 1;
-    const paperGap = hash > (greenSourceShape ? 0.91 : 0.86 + structure * 0.08);
+    const directionalGap = grammar === "dry-brush"
+      ? Math.abs(Math.sin(y * 0.29 + x * 0.035)) * 0.1
+      : grammar === "directional-lines"
+        ? Math.abs(Math.sin((x + y * 0.18) * 0.24)) * 0.08
+        : 0;
     const activeInk = (greenSourceShape && structure >= 0.22)
       || deepSourceShape
       || middleSourceShape;
-    const coverage = !activeInk || paperGap
-      ? 0
-      : greenSourceShape
-        ? 0.58 + structure * 0.16
-        : deepSourceShape
-          ? 0.62 + structure * 0.18
-          : 0.4 + structure * 0.16;
-    const grain = (((x * 17 + y * 31 + x * y * 3) % 23) - 11) * 0.18;
-    pixels.data[offset] = clamp(paper[0] * (1 - coverage) + ink[0] * coverage + grain, 0, 255);
-    pixels.data[offset + 1] = clamp(paper[1] * (1 - coverage) + ink[1] * coverage + grain, 0, 255);
-    pixels.data[offset + 2] = clamp(paper[2] * (1 - coverage) + ink[2] * coverage + grain, 0, 255);
+    const quietCoverage = clamp(0.11 + darkness * 0.07 + Math.min(chroma / 420, 0.07), 0.09, 0.24);
+    const structuralCoverage = greenSourceShape
+      ? 0.48 + structure * 0.2
+      : deepSourceShape
+        ? 0.54 + structure * 0.22
+        : 0.34 + structure * 0.2;
+    const orderedThreshold = bayer4[(y % 4) * 4 + (x % 4)] / 16;
+    const jitteredThreshold = (orderedThreshold + hash * 0.17) % 1;
+    const printed = activeInk && jitteredThreshold < structuralCoverage - directionalGap;
+    const coolQuietLine = !activeInk
+      && blue >= red + 3
+      && luminance <= 224
+      && (y + Math.floor(hash * 5)) % 7 <= 1;
+    const coverage = printed
+      ? 0.68 + structure * 0.12
+      : activeInk
+        ? quietCoverage * 0.28
+        : coolQuietLine
+          ? Math.min(0.34, quietCoverage + 0.13)
+          : quietCoverage;
+    const ink = printed ? structuralColor : sourceInk;
+    const grain = (((x * 17 + y * 31 + x * y * 3) % 29) - 14) * 0.27;
+    const fiber = ((Math.sin(x * 0.13 + y * 0.037) + Math.sin(y * 0.19)) * 0.75);
+    pixels.data[offset] = clamp(paper[0] * (1 - coverage) + ink[0] * coverage + grain + fiber, 0, 255);
+    pixels.data[offset + 1] = clamp(paper[1] * (1 - coverage) + ink[1] * coverage + grain + fiber, 0, 255);
+    pixels.data[offset + 2] = clamp(paper[2] * (1 - coverage) + ink[2] * coverage + grain + fiber, 0, 255);
     pixels.data[offset + 3] = 255;
   }
   working.putImageData(pixels, 0, 0);
@@ -313,11 +352,12 @@ function createAdaptivePhotoIslandMask(
   seedCanvas.height = analysisHeight;
   const seed = seedCanvas.getContext("2d");
   if (!seed) throw new Error("浏览器无法生成不规则摄影场景碎片。");
-  const sourceAnchors = anchors.length ? anchors : [fallback];
+  const fallbackOnly = anchors.length === 0;
+  const sourceAnchors = fallbackOnly ? [fallback] : anchors;
   seed.fillStyle = "#ffffff";
   sourceAnchors.forEach((anchor, index) => {
-    const expansionX = index === 0 ? 1.25 : 1.58;
-    const expansionY = index === 0 ? 1.3 : 1.08;
+    const expansionX = fallbackOnly ? 1.035 : index === 0 ? 1.25 : 1.58;
+    const expansionY = fallbackOnly ? 1.035 : index === 0 ? 1.3 : 1.08;
     organicRelationshipPath(seed, analysisWidth, analysisHeight, anchor, index, expansionX, expansionY);
     seed.fill();
   });
@@ -1003,7 +1043,7 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     // same source region's quiet print translation shows through.
     context.fillStyle = "#f4ead4";
     context.fillRect(0, 0, width, height);
-    const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height);
+    const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height, spec.illustrationGrammar);
     context.drawImage(paperLayer, 0, 0);
     const bandScore = horizontalBandScore(transformedImage, width, height);
     const flatScore = flatPosterizationScore(transformedImage, width, height);
@@ -1074,12 +1114,16 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   const usesPhotoPaperIsland = spec.layout === "scene-fragment" && !usesRelationshipRegion;
   if (usesPhotoPaperIsland) {
     const fallbackIsland = { ...normalizedPhotoWindow(photoWindow, spec.anchorMode), shape: "organic" as const };
-    const adaptiveIsland = createAdaptivePhotoIslandMask(width, height, anchors, fallbackIsland);
+    // The compiled photo domain already includes the subject and only the
+    // necessary support/context. Use that single source-coordinate domain as
+    // the paper opening. Re-fusing every semantic/background box here created
+    // long corridors toward the top-left and could duplicate a support object.
+    const adaptiveIsland = createAdaptivePhotoIslandMask(width, height, [], fallbackIsland);
     handoffMask.drawImage(adaptiveIsland, 0, 0);
     mask.drawImage(handoffMaskCanvas, 0, 0);
     hasLocalHandoffRegion = true;
   }
-  if (spec.subjectMasks?.length && spec.layout === "scene-fragment" && !usesPhotoPaperIsland) {
+  if (spec.subjectMasks?.length && spec.layout === "scene-fragment" && !hasLocalHandoffRegion) {
     const maskImages = await Promise.all(spec.subjectMasks.slice(0, 5).map(loadImage));
     const analysisWidth = 320;
     const analysisCanvas = document.createElement("canvas");
@@ -1288,7 +1332,7 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
       photoWindow.width * width,
       photoWindow.height * height,
     );
-  } else if (!hasGuidedRegion) {
+  } else if (!hasGuidedRegion && !hasLocalHandoffRegion) {
     mask.filter = spec.layout === "layered-rip" ? "blur(1.15px)" : "blur(0.85px)";
     mask.fillStyle = "#ffffff";
     if (spec.layout === "scene-fragment" && spec.anchorMode && spec.anchorMode !== "floating" && !spec.photoAnchors?.length) {
@@ -1307,7 +1351,12 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   if (spec.layout === "scene-fragment" && hasLocalHandoffRegion) {
     mask.drawImage(handoffMaskCanvas, 0, 0);
   }
-  if (spec.layout === "scene-fragment" && !spec.subjectMasks?.length) {
+  // A compiled local paper island is already the complete photographic P
+  // domain. Recovering dark pixels from the canvas edges here used to add
+  // rectangular water/road strips and small corner wedges outside the tear.
+  // Edge recovery is only valid for older scene-fragment modes that do not
+  // have a local handoff region.
+  if (spec.layout === "scene-fragment" && !spec.subjectMasks?.length && !hasLocalHandoffRegion) {
     const edgeForegroundMask = createEdgeForegroundMask(sourceImage, width, height, spec.edgeForegroundSides);
     if (edgeForegroundMask) mask.drawImage(edgeForegroundMask, 0, 0);
   }
@@ -1332,7 +1381,7 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     }
   }
   context.drawImage(fragmentCanvas, 0, 0);
-  if (spec.layout === "scene-fragment") {
+  if (spec.layout === "scene-fragment" && spec.structuralHue?.trim()) {
     drawChromaticBridge(context, width, height, anchors, spec.structuralHue);
   }
   return canvas.toDataURL("image/jpeg", 0.94);

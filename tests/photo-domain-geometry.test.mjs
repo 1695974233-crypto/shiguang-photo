@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   boxArea,
+  closeUnclippedPhotoDomain,
   constrainPhotoDomainBox,
   subjectDomainRelationDelta,
   subjectPositionInsideDomain,
@@ -14,10 +15,41 @@ test("a huge top-left proposal cannot drag a centered subject domain to the corn
 
   assert.ok(result.x > 0.12);
   assert.ok(result.y > 0.05);
-  assert.ok(boxArea(result) <= 0.640001);
+  assert.ok(boxArea(result) <= 0.600001);
   const relation = subjectPositionInsideDomain(subject, result);
   assert.ok(relation.x > 0.32 && relation.x < 0.68);
   assert.ok(relation.y > 0.32 && relation.y < 0.68);
+});
+
+test("a model proposal cannot add a large unused left or top background margin", () => {
+  const subject = { x: 0.57, y: 0.42, width: 0.18, height: 0.24 };
+  const result = constrainPhotoDomainBox(subject, { x: 0.02, y: 0.02, width: 0.79, height: 0.78 });
+
+  assert.ok(subject.x - result.x < 0.22);
+  assert.ok(subject.y - result.y < 0.22);
+  assert.ok(result.x > 0.34);
+  assert.ok(result.y > 0.19);
+  assert.ok(boxArea(result) <= 0.600001);
+});
+
+test("a closed photo island keeps a safety margin from every uncut source edge", () => {
+  const result = closeUnclippedPhotoDomain(
+    { x: 0, y: 0.01, width: 1, height: 0.98 },
+    { top: false, right: false, bottom: false, left: false },
+  );
+  assert.equal(result.x, 0.045);
+  assert.equal(result.y, 0.045);
+  assert.ok(Math.abs(result.width - 0.91) < 1e-12);
+  assert.ok(Math.abs(result.height - 0.91) < 1e-12);
+});
+
+test("a source-cropped subject may keep its real contact with the bottom frame", () => {
+  const result = closeUnclippedPhotoDomain(
+    { x: 0.2, y: 0.28, width: 0.6, height: 0.72 },
+    { top: false, right: false, bottom: true, left: false },
+  );
+  assert.equal(result.y + result.height, 1);
+  assert.equal(result.x, 0.2);
 });
 
 test("verified direct support can expand the photo domain asymmetrically", () => {

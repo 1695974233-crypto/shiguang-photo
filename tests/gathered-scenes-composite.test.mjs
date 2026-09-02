@@ -96,12 +96,21 @@ test("relationship seam is captured before semantic subject masks expand the pho
   assert.ok(semanticMasks > seamCapture);
 });
 
+test("a compiled photo island ignores independent semantic masks that could duplicate support objects", async () => {
+  const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
+  assert.match(source, /spec\.subjectMasks\?\.length && spec\.layout === "scene-fragment" && !hasLocalHandoffRegion/);
+  assert.match(source, /createAdaptivePhotoIslandMask\(width, height, \[\], fallbackIsland\)/);
+  assert.match(source, /if \(spec\.layout === "scene-fragment" && hasLocalHandoffRegion\)[\s\S]*mask\.drawImage\(handoffMaskCanvas/);
+  assert.match(source, /!spec\.subjectMasks\?\.length && !hasLocalHandoffRegion/);
+  assert.match(source, /else if \(!hasGuidedRegion && !hasLocalHandoffRegion\)/);
+});
+
 test("a localized subject-support relationship does not become a full-width photo half-plane", async () => {
   const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
   assert.match(source, /spec\.photoEvidenceType === "continuous-band"/);
   assert.match(source, /spec\.focusMode === "scene-band"/);
   assert.match(source, /const usesPhotoPaperIsland = spec\.layout === "scene-fragment" && !usesRelationshipRegion/);
-  assert.match(source, /const adaptiveIsland = createAdaptivePhotoIslandMask\(width, height, anchors, fallbackIsland\)/);
+  assert.match(source, /const adaptiveIsland = createAdaptivePhotoIslandMask\(width, height, \[\], fallbackIsland\)/);
   assert.doesNotMatch(source, /spec\.photoEvidenceType === "relational-region" \|\| spec\.photoEvidenceType === "continuous-band"/);
 });
 
@@ -111,7 +120,7 @@ test("the photographic scene fragment expands and fuses organic relationship sha
   const bridgeStart = source.indexOf("function drawChromaticBridge");
   const adaptiveFragment = source.slice(adaptiveStart, bridgeStart);
   assert.match(adaptiveFragment, /organicRelationshipPath/);
-  assert.match(adaptiveFragment, /expansionX = index === 0 \? 1\.25 : 1\.58/);
+  assert.match(adaptiveFragment, /expansionX = fallbackOnly \? 1\.035/);
   assert.match(adaptiveFragment, /lineCap = "round"/);
   assert.match(adaptiveFragment, /blur\(9px\)/);
   assert.match(adaptiveFragment, /organicNoise/);
@@ -123,11 +132,21 @@ test("source-derived background uses calm print inks and irregular dropout rathe
   const printStart = source.indexOf("function createSourceDerivedPaperLayer");
   const organicStart = source.indexOf("function organicRelationshipPath");
   const printLayer = source.slice(printStart, organicStart);
-  assert.match(printLayer, /const longestSide = 420/);
+  assert.match(printLayer, /const longestSide = 840/);
   assert.match(printLayer, /const slate = \[47, 62, 65\]/);
   assert.match(printLayer, /const olive = \[128, 141, 104\]/);
   assert.match(printLayer, /43758\.5453/);
+  assert.match(printLayer, /quietCoverage/);
+  assert.match(printLayer, /sourceInk/);
+  assert.match(printLayer, /const bayer4 =/);
+  assert.match(printLayer, /const printed = activeInk/);
+  assert.match(printLayer, /const coolQuietLine =/);
   assert.doesNotMatch(printLayer, /const colorInk = structuralInk/);
+});
+
+test("decorative chromatic bridge is opt-in rather than invented by default", async () => {
+  const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
+  assert.match(source, /spec\.layout === "scene-fragment" && spec\.structuralHue\?\.trim\(\)/);
 });
 
 test("an oversized support anchor is reduced to the local contact domain around the subject", () => {
