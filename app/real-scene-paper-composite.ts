@@ -12,6 +12,15 @@ export type PhotoAnchor = {
 export type NormalizedPoint = { x: number; y: number };
 export type PhotoEvidenceSide = "above" | "below" | "left" | "right";
 export type EdgeForegroundSide = "top" | "right" | "bottom" | "left";
+export type ScenePrintTreatment = "halftone" | "dry-brush" | "rubbing" | "linework";
+
+export type SceneBackgroundZone = {
+  name?: string;
+  objectClass: string;
+  sourceBox: { x: number; y: number; width: number; height: number };
+  confidence?: number;
+  treatment?: string;
+};
 
 export type RealScenePaperCompositeSpec = {
   photoWindow: { x: number; y: number; width: number; height: number };
@@ -33,6 +42,8 @@ export type RealScenePaperCompositeSpec = {
   boundaryGuide?: NormalizedPoint[];
   photoEvidenceSide?: PhotoEvidenceSide;
   illustrationGrammar?: "halftone" | "dry-brush" | "screen-print" | "cut-paper" | "directional-lines";
+  backgroundZones?: SceneBackgroundZone[];
+  quietBackgroundZone?: string;
   structuralHue?: string;
   chromaticBridge?: string;
   quietAreas?: string[];
@@ -191,17 +202,143 @@ function structuralInk(label: string | undefined) {
   return [218, 77, 43] as const;
 }
 
+export function scenePrintTreatment(objectClass = "", requestedTreatment = ""): ScenePrintTreatment {
+  if (/建筑|桥|栏杆|屋顶|塔|楼|墙|亭|building|bridge|rail|roof|tower|wall|pavilion/i.test(objectClass)) return "linework";
+  if (/树|植物|叶|草|花|林|荷|芦苇|vegetation|tree|leaf|grass|flower|forest|lotus|reed/i.test(objectClass)) return "rubbing";
+  if (/水|海|河|湖|池|溪|天空|云|water|sea|river|lake|pond|stream|sky|cloud/i.test(objectClass)) return "dry-brush";
+  if (/地面|道路|路面|岩石|石|沙|岸|土|ground|road|rock|stone|sand|bank|soil/i.test(objectClass)) return "halftone";
+  const requested = requestedTreatment.toLowerCase();
+  if (/石墨拓印|拓印|rubbing|relief/.test(requested)) return "rubbing";
+  if (/稀疏机械线|机械线|line/.test(requested)) return "linework";
+  if (/干刷|丝网|dry.?brush|screen/.test(requested)) return "dry-brush";
+  if (/粗网点|网点|half.?tone/.test(requested)) return "halftone";
+  return "rubbing";
+}
+
+export function sourceCompatibleInk(red: number, green: number, blue: number) {
+  const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+  const neutral = clamp(luminance * 0.42, 48, 112);
+  return [
+    Math.round(red * 0.52 + neutral * 0.48),
+    Math.round(green * 0.52 + neutral * 0.48),
+    Math.round(blue * 0.52 + neutral * 0.48),
+  ] as const;
+}
+
+function smoothstep(value: number) {
+  const normalized = clamp(value, 0, 1);
+  return normalized * normalized * (3 - 2 * normalized);
+}
+
+function zoneWeight(zone: SceneBackgroundZone, x: number, y: number, hash: number) {
+  const box = zone.sourceBox;
+  const width = Math.max(0.02, box.width);
+  const height = Math.max(0.02, box.height);
+  const localX = (x - box.x) / width;
+  const localY = (y - box.y) / height;
+  if (localX < 0 || localX > 1 || localY < 0 || localY > 1) return 0;
+  const edgeDistance = Math.min(localX, 1 - localX, localY, 1 - localY);
+  const feather = smoothstep(edgeDistance / 0.1);
+  const brokenBoundary = 0.82 + hash * 0.18;
+  return feather * brokenBoundary * clamp(zone.confidence ?? 1, 0.55, 1);
+}
+
+type SceneBackgroundFamily = "architecture" | "water" | "sky" | "vegetation" | "ground" | "generic";
+
+function sceneBackgroundFamily(objectClass = ""): SceneBackgroundFamily {
+  if (/天空|云|天际|sky|cloud/i.test(objectClass)) return "sky";
+  if (/建筑|桥|栏杆|屋顶|塔|楼|墙|亭|道路|路面|building|bridge|rail|roof|tower|wall|pavilion|road/i.test(objectClass)) return "architecture";
+  if (/树|植物|叶|草|花|林|荷|芦苇|vegetation|tree|leaf|grass|flower|forest|lotus|reed/i.test(objectClass)) return "vegetation";
+  if (/水|海|河|湖|池|溪|water|sea|river|lake|pond|stream/i.test(objectClass)) return "water";
+  if (/地面|岩石|石|沙|岸|土|ground|rock|stone|sand|bank|soil/i.test(objectClass)) return "ground";
+  return "generic";
+}
+
+function sceneMaterialEvidence(
+  family: SceneBackgroundFamily,
+  edgeX: number,
+  edgeY: number,
+  darkness: number,
+  chroma: number,
+  red: number,
+  green: number,
+  blue: number,
+) {
+  const edgeStrength = clamp(edgeX + edgeY, 0, 1);
+  if (family === "sky") {
+    // Quiet sky remains mostly warm paper. Only real cloud/sky gradients leave
+    // a faint source-colour trace; a flat sky must never become wallpaper.
+    return clamp(edgeStrength * 0.16 + chroma / 1100, 0.008, 0.045);
+  }
+  if (family === "water") {
+    // Horizontal water marks are supported by vertical luminance changes and
+    // local tonal variation, not by the mere presence of a large water box.
+    return clamp(edgeY * 2.15 + edgeX * 0.38 + darkness * 0.24 + chroma / 520, 0.035, 0.84);
+  }
+  if (family === "architecture") {
+    return clamp(edgeStrength * 2.25 + darkness * 0.24, 0.035, 0.92);
+  }
+  if (family === "vegetation") {
+    const greenEvidence = clamp((green - Math.max(red, blue) + 24) / 80, 0, 1);
+    return clamp(edgeStrength * 0.82 + darkness * 0.24 + chroma / 210 + greenEvidence * 0.34, 0.035, 0.88);
+  }
+  if (family === "ground") {
+    return clamp(edgeStrength * 1.15 + darkness * 0.42 + chroma / 360, 0.035, 0.9);
+  }
+  return clamp(edgeStrength * 0.9 + darkness * 0.25 + chroma / 300, 0.025, 0.72);
+}
+
+function compatibleSceneTreatments(zones: SceneBackgroundZone[]) {
+  const selected: ScenePrintTreatment[] = [];
+  for (const zone of zones) {
+    const treatment = scenePrintTreatment(zone.objectClass, zone.treatment);
+    if (!selected.includes(treatment)) selected.push(treatment);
+    if (selected.length === 2) break;
+  }
+  return selected.length ? selected : ["rubbing", "linework"] satisfies ScenePrintTreatment[];
+}
+
+function nearestCompatibleTreatment(treatment: ScenePrintTreatment, allowed: ScenePrintTreatment[]) {
+  if (allowed.includes(treatment)) return treatment;
+  const isLinear = treatment === "linework" || treatment === "halftone";
+  return allowed.find((candidate) => isLinear
+    ? candidate === "linework" || candidate === "halftone"
+    : candidate === "rubbing" || candidate === "dry-brush") ?? allowed[0];
+}
+
+function dominantHorizontalBoundary(sourcePixels: Uint8ClampedArray, width: number, height: number) {
+  const luminanceAt = (x: number, y: number) => {
+    const offset = (y * width + x) * 4;
+    return sourcePixels[offset] * 0.299 + sourcePixels[offset + 1] * 0.587 + sourcePixels[offset + 2] * 0.114;
+  };
+  let bestY = Math.round(height * 0.46);
+  let bestScore = -1;
+  for (let y = Math.round(height * 0.2); y <= Math.round(height * 0.82); y += 2) {
+    let score = 0;
+    let samples = 0;
+    for (let x = 4; x < width - 4; x += 5) {
+      score += Math.abs(luminanceAt(x, y - 3) - luminanceAt(x, y + 3));
+      samples += 1;
+    }
+    const normalizedScore = samples ? score / samples : 0;
+    if (normalizedScore > bestScore) {
+      bestScore = normalizedScore;
+      bestY = y;
+    }
+  }
+  return bestY / Math.max(1, height - 1);
+}
+
 function createSourceDerivedPaperLayer(
   image: HTMLImageElement,
   width: number,
   height: number,
-  grammar: RealScenePaperCompositeSpec["illustrationGrammar"] = "screen-print",
+  backgroundZones: SceneBackgroundZone[] = [],
 ) {
-  // Work at printmaking scale: detailed enough for a fine halftone, but blurred
-  // enough that leaves, gravel and water merge into a few calm scene-derived
-  // masses. The chromatic accent is authored separately; it must never turn
-  // every green source pixel into a fluorescent background block.
-  const longestSide = 840;
+  // Keep the source coordinate system intact and translate only its visual
+  // language. Scene evidence boxes select where ink is allowed; source edges,
+  // tone and colour decide the actual printed contour inside each box.
+  const longestSide = 960;
   const scale = Math.min(1, longestSide / Math.max(width, height));
   const workingWidth = Math.max(1, Math.round(width * scale));
   const workingHeight = Math.max(1, Math.round(height * scale));
@@ -210,15 +347,14 @@ function createSourceDerivedPaperLayer(
   workingCanvas.height = workingHeight;
   const working = workingCanvas.getContext("2d", { willReadFrequently: true });
   if (!working) throw new Error("浏览器无法准备同场景纸面转译。");
-  working.filter = "blur(5px) saturate(0.68) contrast(1.08)";
+  working.filter = "blur(0.85px) saturate(0.78) contrast(1.06)";
   drawCover(working, image, workingWidth, workingHeight);
   working.filter = "none";
   const pixels = working.getImageData(0, 0, workingWidth, workingHeight);
   const sourcePixels = new Uint8ClampedArray(pixels.data);
+  const horizontalBoundary = dominantHorizontalBoundary(sourcePixels, workingWidth, workingHeight);
   const paper = [244, 235, 217] as const;
-  const slate = [47, 62, 65] as const;
-  const stone = [126, 126, 112] as const;
-  const olive = [128, 141, 104] as const;
+  const allowedTreatments = compatibleSceneTreatments(backgroundZones);
   const bayer4 = [
     0, 8, 2, 10,
     12, 4, 14, 6,
@@ -241,60 +377,117 @@ function createSourceDerivedPaperLayer(
     const neighborLuminance = (sampleOffset: number) => sourcePixels[sampleOffset] * 0.299
       + sourcePixels[sampleOffset + 1] * 0.587
       + sourcePixels[sampleOffset + 2] * 0.114;
-    const gradient = Math.abs(neighborLuminance(leftOffset) - neighborLuminance(rightOffset))
-      + Math.abs(neighborLuminance(topOffset) - neighborLuminance(bottomOffset));
-    const darkness = clamp((158 - luminance) / 112, 0, 1);
-    const structure = clamp(gradient / 88 * 0.42 + chroma / 100 * 0.24 + darkness * 0.34, 0, 1);
-    const greenSourceShape = green >= red + 5 && green >= blue + 4 && chroma >= 13;
-    const deepSourceShape = luminance <= 112 && structure >= 0.24;
-    const middleSourceShape = !greenSourceShape && luminance <= 176 && structure >= 0.3;
-    const structuralColor = greenSourceShape ? olive : deepSourceShape ? slate : stone;
-    // A pale source-colour wash keeps sky, water, walls and other quiet
-    // surfaces traceable. The old binary threshold turned those regions into
-    // empty paper, which made the outer scene feel unfinished.
-    const sourceInk = [
-      sourcePixels[offset] * 0.48 + slate[0] * 0.52,
-      sourcePixels[offset + 1] * 0.48 + slate[1] * 0.52,
-      sourcePixels[offset + 2] * 0.48 + slate[2] * 0.52,
-    ] as const;
-    // Deterministic screen-print raster. A slightly jittered Bayer threshold
-    // turns continuous photographic tone into visible ink/paper decisions;
-    // this is materially different from merely fading the source photograph.
+    const gradientX = Math.abs(neighborLuminance(leftOffset) - neighborLuminance(rightOffset));
+    const gradientY = Math.abs(neighborLuminance(topOffset) - neighborLuminance(bottomOffset));
+    const gradient = gradientX + gradientY;
+    const darkness = clamp((205 - luminance) / 170, 0, 1);
+    const edgeStrength = clamp(gradient / 82, 0, 1);
+    const sourceStructure = clamp(edgeStrength * 0.52 + darkness * 0.28 + chroma / 150 * 0.2, 0, 1);
     const hash = Math.abs(Math.sin(x * 12.9898 + y * 78.233 + x * y * 0.0017) * 43758.5453) % 1;
-    const directionalGap = grammar === "dry-brush"
-      ? Math.abs(Math.sin(y * 0.29 + x * 0.035)) * 0.1
-      : grammar === "directional-lines"
-        ? Math.abs(Math.sin((x + y * 0.18) * 0.24)) * 0.08
-        : 0;
-    const activeInk = (greenSourceShape && structure >= 0.22)
-      || deepSourceShape
-      || middleSourceShape;
-    const quietCoverage = clamp(0.11 + darkness * 0.07 + Math.min(chroma / 420, 0.07), 0.09, 0.24);
-    const structuralCoverage = greenSourceShape
-      ? 0.48 + structure * 0.2
-      : deepSourceShape
-        ? 0.54 + structure * 0.22
-        : 0.34 + structure * 0.2;
+    const normalizedX = x / Math.max(1, workingWidth - 1);
+    const normalizedY = y / Math.max(1, workingHeight - 1);
+    let selectedZone: SceneBackgroundZone | undefined;
+    let selectedWeight = 0;
+    let selectedMaterialEvidence = 0;
+    for (const zone of backgroundZones) {
+      const weight = zoneWeight(zone, normalizedX, normalizedY, hash);
+      const family = sceneBackgroundFamily(zone.objectClass);
+      let materialEvidence = sceneMaterialEvidence(
+        family,
+        clamp(gradientX / 82, 0, 1),
+        clamp(gradientY / 82, 0, 1),
+        darkness,
+        chroma,
+        red,
+        green,
+        blue,
+      );
+      if (
+        family === "water"
+        && zone.sourceBox.height >= 0.62
+        && normalizedY < Math.max(horizontalBoundary + 0.015, zone.sourceBox.y + zone.sourceBox.height * 0.34)
+        && blue >= red + 4
+        && edgeStrength < 0.18
+      ) {
+        materialEvidence *= 0.16;
+      }
+      if (weight * materialEvidence > selectedWeight * selectedMaterialEvidence) {
+        selectedZone = zone;
+        selectedWeight = weight;
+        selectedMaterialEvidence = materialEvidence;
+      }
+    }
+    const inferredTreatment = green >= red + 5 && green >= blue + 3 && chroma >= 12
+      ? "rubbing" as const
+      : blue >= red + 4 && luminance >= 95
+        ? "dry-brush" as const
+        : edgeStrength >= 0.26
+          ? "linework" as const
+          : "halftone" as const;
+    const requestedTreatment = selectedZone
+      ? scenePrintTreatment(selectedZone.objectClass, selectedZone.treatment)
+      : inferredTreatment;
+    const treatment = nearestCompatibleTreatment(requestedTreatment, allowedTreatments);
+    const materialEvidence = selectedZone
+      ? selectedMaterialEvidence
+      : sceneMaterialEvidence("generic", clamp(gradientX / 82, 0, 1), clamp(gradientY / 82, 0, 1), darkness, chroma, red, green, blue);
+    // When analysis boxes are available, non-box pixels carry only sparse
+    // source contours. This prevents a repeated all-over dot wallpaper while
+    // preserving enough low-density evidence that the page never feels blank.
+    let evidenceWeight = selectedZone
+      ? selectedWeight * materialEvidence
+      : backgroundZones.length
+        ? 0
+        : clamp(sourceStructure * 0.72, 0.12, 0.72);
     const orderedThreshold = bayer4[(y % 4) * 4 + (x % 4)] / 16;
     const jitteredThreshold = (orderedThreshold + hash * 0.17) % 1;
-    const printed = activeInk && jitteredThreshold < structuralCoverage - directionalGap;
-    const coolQuietLine = !activeInk
-      && blue >= red + 3
-      && luminance <= 224
-      && (y + Math.floor(hash * 5)) % 7 <= 1;
-    const coverage = printed
-      ? 0.68 + structure * 0.12
-      : activeInk
-        ? quietCoverage * 0.28
-        : coolQuietLine
-          ? Math.min(0.34, quietCoverage + 0.13)
-          : quietCoverage;
-    const ink = printed ? structuralColor : sourceInk;
+    let printed = false;
+    let printedCoverage = 0;
+    if (treatment === "linework") {
+      const sparseHatch = (x + Math.floor(y * 0.22) + Math.floor(hash * 4)) % 7 <= 2;
+      const softStructuralTone = darkness >= 0.15 && hash < 0.14 + evidenceWeight * 0.18;
+      printed = evidenceWeight > 0.035 && sparseHatch
+        && (edgeStrength >= 0.045 + (1 - evidenceWeight) * 0.12 || softStructuralTone);
+      printedCoverage = 0.5 + edgeStrength * 0.3;
+    } else if (treatment === "dry-brush") {
+      const horizontalBristle = (y + Math.floor(Math.sin(x * 0.08) * 3) + Math.floor(hash * 3)) % 11 <= 3;
+      const brokenStroke = hash <= 0.42 + sourceStructure * 0.34;
+      printed = evidenceWeight > 0.055 && horizontalBristle && brokenStroke
+        && (gradientY >= 2.5 || edgeStrength >= 0.075 || darkness >= 0.15);
+      printedCoverage = 0.36 + darkness * 0.22 + edgeStrength * 0.16;
+    } else if (treatment === "rubbing") {
+      const reliefCluster = (Math.sin(x * 0.075) + Math.sin(y * 0.091) + Math.sin((x + y) * 0.041)) / 3;
+      const reliefDensity = clamp(0.16 + sourceStructure * 0.58 + reliefCluster * 0.15, 0.08, 0.78);
+      printed = evidenceWeight > 0.06 && jitteredThreshold < reliefDensity * evidenceWeight;
+      printedCoverage = 0.34 + sourceStructure * 0.26;
+    } else {
+      const dotDensity = clamp(0.08 + darkness * 0.42 + edgeStrength * 0.26 + chroma / 360, 0.06, 0.72);
+      printed = evidenceWeight > 0.05 && jitteredThreshold < dotDensity * evidenceWeight;
+      printedCoverage = 0.34 + darkness * 0.22 + edgeStrength * 0.12;
+    }
+    const sourceContour = edgeStrength >= 0.085
+      && hash < clamp(0.08 + edgeStrength * 0.72, 0.1, 0.5)
+      && (x + Math.floor(y * 0.31)) % 6 <= 1;
+    if (sourceContour) {
+      // Always retain a sparse source-coordinate contour plate. It recovers a
+      // bridge, railing or shoreline that the semantic pass may omit, without
+      // inventing any object or filling flat sky and paper.
+      printed = true;
+      printedCoverage = Math.max(printedCoverage, 0.46 + edgeStrength * 0.24);
+      evidenceWeight = Math.max(evidenceWeight, clamp(edgeStrength * 0.82, 0.09, 0.62));
+    }
+    const sourceInk = sourceCompatibleInk(red, green, blue);
+    const quietWash = selectedZone
+      ? 0.006 + evidenceWeight * 0.035
+      : backgroundZones.length
+        ? 0.002
+        : 0.018 + evidenceWeight * 0.028;
+    const coverage = printed ? printedCoverage * clamp(evidenceWeight + 0.2, 0.24, 1) : quietWash;
     const grain = (((x * 17 + y * 31 + x * y * 3) % 29) - 14) * 0.27;
     const fiber = ((Math.sin(x * 0.13 + y * 0.037) + Math.sin(y * 0.19)) * 0.75);
-    pixels.data[offset] = clamp(paper[0] * (1 - coverage) + ink[0] * coverage + grain + fiber, 0, 255);
-    pixels.data[offset + 1] = clamp(paper[1] * (1 - coverage) + ink[1] * coverage + grain + fiber, 0, 255);
-    pixels.data[offset + 2] = clamp(paper[2] * (1 - coverage) + ink[2] * coverage + grain + fiber, 0, 255);
+    pixels.data[offset] = clamp(paper[0] * (1 - coverage) + sourceInk[0] * coverage + grain + fiber, 0, 255);
+    pixels.data[offset + 1] = clamp(paper[1] * (1 - coverage) + sourceInk[1] * coverage + grain + fiber, 0, 255);
+    pixels.data[offset + 2] = clamp(paper[2] * (1 - coverage) + sourceInk[2] * coverage + grain + fiber, 0, 255);
     pixels.data[offset + 3] = 255;
   }
   working.putImageData(pixels, 0, 0);
@@ -1043,7 +1236,7 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
     // same source region's quiet print translation shows through.
     context.fillStyle = "#f4ead4";
     context.fillRect(0, 0, width, height);
-    const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height, spec.illustrationGrammar);
+    const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height, spec.backgroundZones);
     context.drawImage(paperLayer, 0, 0);
     const bandScore = horizontalBandScore(transformedImage, width, height);
     const flatScore = flatPosterizationScore(transformedImage, width, height);

@@ -15,7 +15,8 @@ test("gathered scenes uses a compiled relationship domain plus deterministic sou
   assert.match(route, /modelLabel: "固定工作流 · 原像素合成"/);
   assert.match(route, /layout: "scene-fragment"/);
   assert.match(route, /modelLayerStrength: 0/);
-  assert.match(route, /不再叠加可能误选或重复对象的独立分割蒙版/);
+  assert.match(route, /背景证据保持原图坐标、轮廓、方向和源色/);
+  assert.match(route, /backgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
   assert.match(route, /photoAnchors: \[/);
   assert.match(route, /\.\.\.sceneBackgroundPlan\.subjectBox/);
   assert.match(route, /photoEvidenceType: "relational-region"/);

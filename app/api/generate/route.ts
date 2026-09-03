@@ -339,7 +339,7 @@ async function compileSceneBackgroundPlan(
 
 只输出 JSON：{"subject":"主要主体或复合主体，40至120字","subjectBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"subjectFrameContact":{"top":true或false,"right":true或false,"bottom":true或false,"left":true或false},"subjectAnchors":["主体不可改变的姿态、接触或对齐关系，1至4项"],"supportObjects":["必须与主体一起保留成自然摄影的接触物、承托物或复合主体组成，0至4项"],"relationshipEvidence":[{"name":"必要关系证据","role":"direct_support或inseparable_context","sourceBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"confidence":0至1}],"photoDomain":"P域必须包含什么、必须排除什么，80至180字","photoDomainBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"photoDomainTargetPercent":28至58,"boundaryLogic":"撕边应依据当前原图哪些可见分界形成，60至140字","backgroundZones":[{"name":"该证据区的简短名称","objectClass":"只用当前原图中确实可见的对象类别，不得写风格或推断对象","sourceBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"sourceLocation":"它在原图中的范围及与主体的关系","visualEvidence":"原图中能直接核验的颜色、轮廓、纹理、数量和遮挡证据","confidence":0至1,"edgeConnection":"它从撕口哪段接出或分布到哪一侧","direction":"必须保持的原始方向、节奏、层级或尺度关系","treatment":"从粗网点、干刷丝网、石墨拓印、稀疏机械线中选一种"}],"quietBackgroundZone":"原图背景中最安静、可用接近纸色低密度转译但不能留成空画板的区域"}。
 
-subjectBox 紧贴主体本身；subjectFrameContact 只有当主体本身的真实像素被输入照片对应边缘截断时才为 true，背景延续到边缘、主体靠近边缘或subjectBox估算到边缘都不能写 true。supportObjects 只列与主体发生直接物理接触、承托或构成同一不可分割主体的必要部分，不得把普通环境或远景并入。relationshipEvidence 只记录 direct_support（直接承托、接触或复合主体部分）和 inseparable_context（不保留便无法读懂主体关系的局部环境），每项必须紧邻或接触 subjectBox；普通天空、水面、树木、道路、远景和纯构图空间不得列入。photoDomainBox 是在原图完整画幅坐标中，从subjectBox向这些必要关系证据自适应扩张得到的最小撕口整体包围框；不得因为普通背景位于主体左侧或上方，就生成覆盖左边缘、上边缘或左上角的大关系框。它必须继承主体在原图中的位置，不能为了构图把框移到左上、中央或任何固定象限，也不要求主体位于框的中心。四周缓冲可以不等宽，但必须由接触关系与可见空间分界决定，任何情况下实际撕口不能超过60%。撕边不得贴着主体轮廓，应在关系域外保留自然缓冲，并只沿当前照片中直接可见的空间分界。backgroundZones 返回1至4项，并且只能记录 scene_element 场景语义证据，绝不能把纸张基底、纸纹、撕边、网点、丝网、石墨、拓印、套色或扫描颗粒写入对象白名单；这些属于后续统一提供的材料层。每项必须位于P域之外，sourceBox 必须准确框住证据，visualEvidence 必须描述可直接核验的视觉事实，confidence 必须至少0.72。不确定、被严重遮挡、只靠地点常识才能推断或需要补全才能成立的对象一律省略。宁可只返回一个高置信场景元素，也不要凑数。若P域之外没有可可靠识别的场景元素，返回空数组；后续只允许使用原图色彩、明暗、纹理和方向形成非对象化印痕。必须把P外全部区域规划成I背景域；quietBackgroundZone只是同一背景中低信息、低墨量的一部分，不是独立裸纸留白。
+subjectBox 紧贴主体本身；subjectFrameContact 只有当主体本身的真实像素被输入照片对应边缘截断时才为 true，背景延续到边缘、主体靠近边缘或subjectBox估算到边缘都不能写 true。supportObjects 只列与主体发生直接物理接触、承托或构成同一不可分割主体的必要部分，不得把普通环境或远景并入。relationshipEvidence 只记录 direct_support（直接承托、接触或复合主体部分）和 inseparable_context（不保留便无法读懂主体关系的局部环境），每项必须紧邻或接触 subjectBox；普通天空、水面、树木、道路、远景和纯构图空间不得列入。photoDomainBox 是在原图完整画幅坐标中，从subjectBox向这些必要关系证据自适应扩张得到的最小撕口整体包围框；不得因为普通背景位于主体左侧或上方，就生成覆盖左边缘、上边缘或左上角的大关系框。它必须继承主体在原图中的位置，不能为了构图把框移到左上、中央或任何固定象限，也不要求主体位于框的中心。四周缓冲可以不等宽，但必须由接触关系与可见空间分界决定，任何情况下实际撕口不能超过60%。撕边不得贴着主体轮廓，应在关系域外保留自然缓冲，并只沿当前照片中直接可见的空间分界。backgroundZones 返回1至4项，并且只能记录 scene_element 场景语义证据，绝不能把纸张基底、纸纹、撕边、网点、丝网、石墨、拓印、套色或扫描颗粒写入对象白名单；这些属于后续统一提供的材料层。每项只能描述一个景物家族，严禁把天空与水面、植物与建筑、道路与栏杆等不同对象合并成一个名称或一个大框；尤其天空和水面必须分别给出紧贴各自真实边界的 sourceBox。每项必须位于P域之外，sourceBox 必须准确框住证据，visualEvidence 必须描述可直接核验的视觉事实，confidence 必须至少0.72。不确定、被严重遮挡、只靠地点常识才能推断或需要补全才能成立的对象一律省略。宁可只返回一个高置信场景元素，也不要凑数。若P域之外没有可可靠识别的场景元素，返回空数组；后续只允许使用原图色彩、明暗、纹理和方向形成非对象化印痕。必须把P外全部区域规划成I背景域；quietBackgroundZone只是同一背景中低信息、低墨量的一部分，不是独立裸纸留白。
 
 ${scenePaperCollageLayerOntology}` },
         { role: "user", content: [
@@ -755,6 +755,14 @@ export async function POST(request: Request) {
         spatialInvariants: sceneBackgroundPlan.subjectAnchors,
         photoEvidenceType: "relational-region" as const,
         illustrationGrammar: gatheredIllustrationGrammar(sceneBackgroundPlan),
+        backgroundZones: sceneBackgroundPlan.backgroundZones.map((zone) => ({
+          name: zone.name,
+          objectClass: zone.objectClass,
+          sourceBox: zone.sourceBox,
+          confidence: zone.confidence,
+          treatment: zone.treatment,
+        })),
+        quietBackgroundZone: sceneBackgroundPlan.quietBackgroundZone,
         modelLayerStrength: 0,
       },
       qualityWarning: [],
@@ -762,7 +770,7 @@ export async function POST(request: Request) {
       hardBlock: false,
       skill: { name: adapter.name, implementation: adapter.implementation, sourceUrl: adapter.sourceUrl },
       skillAnalysis: plan.photoAnalysis,
-      skillRecipe: `${plan.recipe} 本次采用固定工作流：模型只识别主体关系，摄影域由浏览器直接读取上传照片的原始同坐标像素；纸裁只采用已编译的主体—支撑关系域，不再叠加可能误选或重复对象的独立分割蒙版；纸裁外由同一原图确定性转译为暖纸上的低对比网点、拓印、干刷和稀疏结构线，主体不会被生图模型重绘或移动。`,
+      skillRecipe: `${plan.recipe} 本次采用固定工作流：模型只识别主体关系及纸裁外背景证据区，摄影域由浏览器直接读取上传照片的原始同坐标像素；纸裁只采用已编译的主体—支撑关系域。背景证据保持原图坐标、轮廓、方向和源色，植物转为拓印块面，水面与天空转为断续干刷，建筑与栏杆转为稀疏结构线，地面与岩石转为低密度网点；每张图最多采用两种相容印刷语言，安静区域恢复暖纸留白，不再全幅铺统一纹样。主体不会被生图模型重绘或移动。`,
     });
   }
   const correction = body.qualityCorrection?.trim().slice(0, 600);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generatedStyleOpacity, localizedSupportAnchor, normalizeBoundaryGuide, normalizedLayeredPhotoWindow, normalizedPhotoWindow, pointInsidePhotoAnchor } from "../app/real-scene-paper-composite.ts";
+import { generatedStyleOpacity, localizedSupportAnchor, normalizeBoundaryGuide, normalizedLayeredPhotoWindow, normalizedPhotoWindow, pointInsidePhotoAnchor, scenePrintTreatment, sourceCompatibleInk } from "../app/real-scene-paper-composite.ts";
 import { readFile } from "node:fs/promises";
 
 test("gathered-scenes photo window keeps a substantial real-photo region", () => {
@@ -127,21 +127,53 @@ test("the photographic scene fragment expands and fuses organic relationship sha
   assert.doesNotMatch(adaptiveFragment, /tornPaperPath|fillRect/);
 });
 
-test("source-derived background uses calm print inks and irregular dropout rather than enlarged pixels or fluorescent structural fill", async () => {
+test("source-derived background is zoned by source evidence instead of using one all-over raster", async () => {
   const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
   const printStart = source.indexOf("function createSourceDerivedPaperLayer");
   const organicStart = source.indexOf("function organicRelationshipPath");
   const printLayer = source.slice(printStart, organicStart);
-  assert.match(printLayer, /const longestSide = 840/);
-  assert.match(printLayer, /const slate = \[47, 62, 65\]/);
-  assert.match(printLayer, /const olive = \[128, 141, 104\]/);
+  assert.match(printLayer, /const longestSide = 960/);
+  assert.match(printLayer, /zoneWeight/);
+  assert.match(printLayer, /selectedZone/);
+  assert.match(printLayer, /allowedTreatments/);
   assert.match(printLayer, /43758\.5453/);
-  assert.match(printLayer, /quietCoverage/);
-  assert.match(printLayer, /sourceInk/);
+  assert.match(printLayer, /sourceCompatibleInk/);
+  assert.match(printLayer, /dominantHorizontalBoundary/);
+  assert.match(printLayer, /sourceContour/);
+  assert.match(printLayer, /quietWash/);
   assert.match(printLayer, /const bayer4 =/);
-  assert.match(printLayer, /const printed = activeInk/);
-  assert.match(printLayer, /const coolQuietLine =/);
+  assert.match(printLayer, /horizontalBristle/);
+  assert.match(printLayer, /reliefCluster/);
+  assert.match(printLayer, /sparseHatch/);
+  assert.match(printLayer, /dotDensity/);
+  assert.doesNotMatch(printLayer, /quietCoverage/);
   assert.doesNotMatch(printLayer, /const colorInk = structuralInk/);
+});
+
+test("scene objects select a source-appropriate print language", () => {
+  assert.equal(scenePrintTreatment("桥梁与栏杆", "稀疏机械线"), "linework");
+  assert.equal(scenePrintTreatment("湖面", "干刷丝网"), "dry-brush");
+  assert.equal(scenePrintTreatment("石岸", "粗网点"), "halftone");
+  assert.equal(scenePrintTreatment("荷叶与树木", "石墨拓印"), "rubbing");
+  assert.equal(scenePrintTreatment("水生植物叶片", "干刷丝网"), "rubbing");
+  assert.equal(scenePrintTreatment("水面", "粗网点"), "dry-brush");
+});
+
+test("paper ink keeps the source hue ordering while compressing chroma", () => {
+  const greenInk = sourceCompatibleInk(72, 142, 64);
+  const blueInk = sourceCompatibleInk(72, 118, 176);
+  assert.ok(greenInk[1] > greenInk[0] && greenInk[1] > greenInk[2]);
+  assert.ok(blueInk[2] > blueInk[1] && blueInk[1] > blueInk[0]);
+  assert.ok(Math.max(...greenInk) - Math.min(...greenInk) < 70);
+  assert.ok(Math.max(...blueInk) - Math.min(...blueInk) < 70);
+});
+
+test("the API passes source boxes and per-zone treatments into the deterministic compositor", async () => {
+  const source = await readFile(new URL("../app/api/generate/route.ts", import.meta.url), "utf8");
+  assert.match(source, /backgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
+  assert.match(source, /sourceBox: zone\.sourceBox/);
+  assert.match(source, /treatment: zone\.treatment/);
+  assert.match(source, /quietBackgroundZone: sceneBackgroundPlan\.quietBackgroundZone/);
 });
 
 test("decorative chromatic bridge is opt-in rather than invented by default", async () => {
