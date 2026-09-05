@@ -88,6 +88,16 @@ test("final relation-domain composite protects source coverage without a sticker
   assert.doesNotMatch(source, /context\.strokeStyle\s*=\s*["']#fff/);
 });
 
+test("an authored background plate is drawn directly before the source photo island", async () => {
+  const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
+  const authoredPlate = source.indexOf('spec.backgroundLayerMode === "authored-plate"');
+  const photoFragment = source.indexOf('fragment.drawImage(sourceImage');
+  assert.ok(authoredPlate > 0);
+  assert.ok(photoFragment > authoredPlate);
+  assert.match(source, /clamp\(spec\.modelLayerStrength \?\? 0\.9, 0, 0\.94\)/);
+  assert.match(source, /drawCover\(context, transformedImage, width, height\)/);
+});
+
 test("relationship seam is captured before semantic subject masks expand the photo domain", async () => {
   const source = await readFile(new URL("../app/real-scene-paper-composite.ts", import.meta.url), "utf8");
   const seamCapture = source.indexOf("handoffMask.drawImage(maskCanvas");

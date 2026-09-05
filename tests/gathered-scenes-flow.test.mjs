@@ -6,16 +6,17 @@ const routePath = new URL("../app/api/generate/route.ts", import.meta.url);
 const runtimePath = new URL("../app/skill-runtime.ts", import.meta.url);
 const pagePath = new URL("../app/page.tsx", import.meta.url);
 
-test("gathered scenes uses a compiled relationship domain plus deterministic source-pixel composite", async () => {
+test("gathered scenes uses an isolated authored background plate plus deterministic source-pixel composite", async () => {
   const route = await readFile(routePath, "utf8");
   const runtime = await readFile(runtimePath, "utf8");
   const page = await readFile(pagePath, "utf8");
 
   assert.doesNotMatch(route, /segmentPhotoSubjects/);
-  assert.match(route, /modelLabel: "固定工作流 · 原像素合成"/);
+  assert.match(route, /背景底板 \+ 原像素合成/);
   assert.match(route, /layout: "scene-fragment"/);
-  assert.match(route, /modelLayerStrength: 0/);
-  assert.match(route, /背景证据保持原图坐标、轮廓、方向和源色/);
+  assert.match(route, /backgroundLayerMode: backgroundPlate \? "authored-plate"/);
+  assert.match(route, /modelLayerStrength: backgroundPlate \? 0\.92 : 0/);
+  assert.match(route, /一个主形体和最多两个辅助印记/);
   assert.match(route, /backgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
   assert.match(route, /photoAnchors: \[/);
   assert.match(route, /\.\.\.sceneBackgroundPlan\.subjectBox/);
@@ -26,12 +27,16 @@ test("gathered scenes uses a compiled relationship domain plus deterministic sou
   assert.match(page, /applyRealScenePaperComposite\(inputImage, data\.image \|\| inputImage, data\.localComposite\)/);
 });
 
-test("gathered scenes never falls back to a full-frame image generator", async () => {
+test("gathered scenes generates only a background plate and safely falls back locally", async () => {
   const route = await readFile(routePath, "utf8");
 
   assert.match(route, /if \(adapter\.id === "gathered-scenes" && sceneBackgroundPlan\) \{[\s\S]*return Response\.json/);
   assert.match(route, /避免产生主体偏移/);
-  assert.match(route, /纸裁只采用已编译的主体—支撑关系域/);
+  assert.match(route, /generateGatheredBackgroundPlate/);
+  assert.match(route, /不得描绘、复制、替换或新增主要主体/);
+  assert.match(route, /不得生成照片窗口、人物或主体剪影、撕洞、撕边/);
+  assert.match(route, /本地背景降级 \+ 原像素合成/);
+  assert.match(route, /浏览器随后才从上传照片的原始同坐标像素覆盖主体/);
   assert.doesNotMatch(route, /拾景纸刊任务没有成功提交/);
   assert.doesNotMatch(route, /const dashscopeKey = process\.env\.DASHSCOPE_API_KEY/);
 });
@@ -47,8 +52,8 @@ test("relationship analysis makes the dedicated geometry pass authoritative and 
   assert.match(route, /subjectFrameContact/);
   assert.match(route, /closeUnclippedPhotoDomain/);
   assert.match(route, /doubao-seed-2-0-lite-260428/);
-  assert.match(route, /模型只识别主体关系/);
-  assert.match(route, /摄影域由浏览器直接读取上传照片的原始同坐标像素/);
+  assert.match(route, /模型只读取纸裁外背景证据/);
+  assert.match(route, /浏览器随后才从上传照片的原始同坐标像素覆盖主体/);
 });
 
 test("the source scene is split into one bounded photo island and a full-page print field", async () => {

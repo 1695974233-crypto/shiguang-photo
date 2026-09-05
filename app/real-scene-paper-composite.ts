@@ -48,6 +48,7 @@ export type RealScenePaperCompositeSpec = {
   chromaticBridge?: string;
   quietAreas?: string[];
   edgeForegroundSides?: EdgeForegroundSide[];
+  backgroundLayerMode?: "source-protected" | "authored-plate";
   modelLayerStrength?: number;
 };
 
@@ -1230,23 +1231,35 @@ export async function applyRealScenePaperComposite(source: string, transformedLa
   if (!context) throw new Error("浏览器无法合成实景纸拼，请更新浏览器后重试。");
 
   if (spec.layout === "scene-fragment") {
-    // The source-derived plate guarantees complete scene coverage. Qwen remains
-    // the main authored illustration layer, except where it incorrectly turns
-    // source content into blank paper; those pixels become transparent so the
-    // same source region's quiet print translation shows through.
+    // The source-derived plate guarantees complete scene coverage. A dedicated
+    // background-only model plate can sit above it, while older generated
+    // layers still pass through the conservative source-agreement gate.
     context.fillStyle = "#f4ead4";
     context.fillRect(0, 0, width, height);
     const paperLayer = createSourceDerivedPaperLayer(sourceImage, width, height, spec.backgroundZones);
     context.drawImage(paperLayer, 0, 0);
-    const bandScore = horizontalBandScore(transformedImage, width, height);
-    const flatScore = flatPosterizationScore(transformedImage, width, height);
-    const artifactScore = bandScore + flatScore;
-    const requestedStrength = clamp(spec.modelLayerStrength ?? 0.24, 0, 0.42);
-    const artifactMultiplier = artifactScore >= 3 ? 0.32 : artifactScore >= 2 ? 0.5 : artifactScore >= 1 ? 0.72 : 1;
-    const protectedGenerated = requestedStrength > 0.01
-      ? createSourceProtectedGeneratedLayer(sourceImage, transformedImage, width, height, requestedStrength * artifactMultiplier)
-      : undefined;
-    if (protectedGenerated) context.drawImage(protectedGenerated, 0, 0);
+    if (spec.backgroundLayerMode === "authored-plate") {
+      // The model was asked for a background-only illustration plate. It can be
+      // used as authored art because the original photo island is composited
+      // afterwards and remains the sole source of subject pixels.
+      const requestedStrength = clamp(spec.modelLayerStrength ?? 0.9, 0, 0.94);
+      if (requestedStrength > 0.01) {
+        context.save();
+        context.globalAlpha = requestedStrength;
+        drawCover(context, transformedImage, width, height);
+        context.restore();
+      }
+    } else {
+      const bandScore = horizontalBandScore(transformedImage, width, height);
+      const flatScore = flatPosterizationScore(transformedImage, width, height);
+      const artifactScore = bandScore + flatScore;
+      const requestedStrength = clamp(spec.modelLayerStrength ?? 0.24, 0, 0.42);
+      const artifactMultiplier = artifactScore >= 3 ? 0.32 : artifactScore >= 2 ? 0.5 : artifactScore >= 1 ? 0.72 : 1;
+      const protectedGenerated = requestedStrength > 0.01
+        ? createSourceProtectedGeneratedLayer(sourceImage, transformedImage, width, height, requestedStrength * artifactMultiplier)
+        : undefined;
+      if (protectedGenerated) context.drawImage(protectedGenerated, 0, 0);
+    }
   } else {
     drawCover(context, transformedImage, width, height);
   }

@@ -592,6 +592,100 @@ async function generateImageCandidate(apiKey: string, modelId: string, prompt: s
   return { image, usage: data.usage };
 }
 
+type GatheredBackgroundPlate = {
+  image: string;
+  usage?: unknown;
+  modelId: string;
+  modelLabel: string;
+  fallbackUsed: boolean;
+};
+
+function gatheredBackgroundModels() {
+  const configured = (
+    process.env.ARK_GATHERED_BACKGROUND_MODELS
+    || process.env.ARK_GATHERED_IMAGE_MODELS
+    || ""
+  )
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const defaults = [
+    "doubao-seedream-4-5-251128",
+    "doubao-seedream-5-0-lite-260128",
+    "doubao-seedream-4-0-250828",
+  ];
+  return [...new Set([...configured, ...defaults])];
+}
+
+function gatheredBackgroundModelLabel(modelId: string) {
+  return defaultModelChain.find((item) => item.id === modelId)?.label || modelId;
+}
+
+function rankedBackgroundZones(plan: SceneBackgroundPlan) {
+  const ordinaryQuietClasses = /天空|sky|云|cloud/i;
+  return [...plan.backgroundZones]
+    .map((zone) => {
+      const area = boxArea(zone.sourceBox);
+      const quietPenalty = ordinaryQuietClasses.test(`${zone.name} ${zone.objectClass}`) ? 0.62 : 1;
+      return { zone, score: zone.confidence * Math.sqrt(Math.max(0.001, area)) * quietPenalty };
+    })
+    .sort((left, right) => right.score - left.score)
+    .map((item) => item.zone)
+    .slice(0, 3);
+}
+
+function compileGatheredBackgroundPrompt(body: GenerateRequest, plan: SceneBackgroundPlan) {
+  const dimensions = body.image ? imageDimensions(body.image) : undefined;
+  const orientation = dimensions
+    ? dimensions.width >= dimensions.height ? "横向" : "竖向"
+    : "保持输入方向";
+  const selectedZones = rankedBackgroundZones(plan);
+  const evidence = selectedZones.map((zone, index) => (
+    `${index + 1}. ${zone.name}（${zone.objectClass}），原位置 ${zone.sourceLocation}；可核验特征：${zone.visualEvidence}；` +
+    `保持 ${zone.direction}；建议仅以${zone.treatment}转译。`
+  )).join("\n");
+  const primaryGrammar = selectedZones[0]?.treatment || "石墨拓印";
+  const supportingGrammar = selectedZones.find((zone) => zone.treatment !== primaryGrammar)?.treatment;
+  const grammarRule = supportingGrammar
+    ? `以${primaryGrammar}为唯一主语言，只允许${supportingGrammar}作为少量辅助。`
+    : `全页只使用${primaryGrammar}这一种主语言。`;
+
+  return `你正在制作一张${orientation}、与输入图片同宽高比和同一完整坐标系的“纸上背景插画底板”。输入图片是唯一事实来源，只能读取其中摄影域之外的背景信息。最终主体会由程序用原照片像素覆盖，所以这一步不得描绘、复制、替换或新增主要主体“${plan.subject}”，也不得生成照片窗口、人物或主体剪影、撕洞、撕边、相框、贴纸、文字、Logo、水印和样机。整张输出必须是平整扫描的暖象牙色纤维纸与低对比印刷插画，没有任何自然摄影区域。
+
+背景不是逐像素描摹，也不是把原照片淡化铺满。请从以下源图证据中选一个最能代表场景的主要形体，再取最多两个辅助形体；合并重复物，删去约70%至90%的枝叶、波纹、砖石和杂点，把主要形体放大成清楚的大轮廓、大块拓印或有方向的线群。保持它们在原图中的上下左右关系、地平线、透视方向、尺度层级和走势，不得搬家，不得补全输入中看不见的部分：
+${evidence || "只使用原图可见背景的色彩、明暗、轮廓和方向，做非对象化低密度印痕。"}
+
+${grammarRule}有效墨迹约占整页15%至30%，其余区域让暖纸呼吸，但安静区仍以非常淡的源色、明暗或方向印痕承接“${plan.quietBackgroundZone || "原图低信息背景"}”，不能成为纯白空板。色彩必须来自原背景并显著降饱和，允许灰绿、灰蓝、石墨灰和少量源色套印；边缘允许缺墨、断线、网点、拓印与轻微错版，禁止均匀铅笔地毯、全页重复纹样、连续水彩、照片滤镜、通用装饰花纹和3D纸层阴影。
+
+最终画面应读作对同一背景的编辑性版画蒸馏：一个主形体、最多两个辅助印记、大片有信息的纸面静区。不要画主要主体，不要画撕纸开口；程序将在后续按原坐标叠回真实主体与关系域。`;
+}
+
+async function generateGatheredBackgroundPlate(
+  apiKey: string,
+  body: GenerateRequest,
+  plan: SceneBackgroundPlan,
+): Promise<GatheredBackgroundPlate | undefined> {
+  if (!body.image) return undefined;
+  const prompt = compileGatheredBackgroundPrompt(body, plan);
+  const models = gatheredBackgroundModels();
+  for (let index = 0; index < models.length; index += 1) {
+    const modelId = models[index];
+    try {
+      const candidate = await generateImageCandidate(apiKey, modelId, prompt, [body.image], 90_000);
+      return {
+        ...candidate,
+        modelId,
+        modelLabel: gatheredBackgroundModelLabel(modelId),
+        fallbackUsed: index > 0,
+      };
+    } catch {
+      // Background generation is optional. The browser still has a complete,
+      // source-derived print plate and can deliver without moving the subject.
+    }
+  }
+  return undefined;
+}
+
 function imageDimensions(dataUri: string) {
   const encoded = dataUri.split(",", 2)[1];
   if (!encoded) return undefined;
@@ -732,13 +826,17 @@ export async function POST(request: Request) {
   }
 
   if (adapter.id === "gathered-scenes" && sceneBackgroundPlan) {
+    const backgroundPlate = await generateGatheredBackgroundPlate(apiKey, body, sceneBackgroundPlan);
     const relationshipAnchors = sceneBackgroundPlan.relationshipEvidence
       .filter((item) => item.confidence >= 0.62)
       .map((item) => ({ ...item.sourceBox, shape: "organic" as const }));
     const targetPhotoShare = Math.min(0.56, Math.max(0.22, sceneBackgroundPlan.photoDomainTargetPercent / 100));
     return Response.json({
-      modelLabel: "固定工作流 · 原像素合成",
-      fallbackUsed: false,
+      image: backgroundPlate?.image,
+      modelLabel: backgroundPlate
+        ? `${backgroundPlate.modelLabel} · 背景底板 + 原像素合成`
+        : "固定工作流 · 本地背景降级 + 原像素合成",
+      fallbackUsed: backgroundPlate?.fallbackUsed ?? true,
       localComposite: {
         photoWindow: sceneBackgroundPlan.photoDomainBox,
         photoAnchors: [
@@ -763,14 +861,15 @@ export async function POST(request: Request) {
           treatment: zone.treatment,
         })),
         quietBackgroundZone: sceneBackgroundPlan.quietBackgroundZone,
-        modelLayerStrength: 0,
+        backgroundLayerMode: backgroundPlate ? "authored-plate" as const : "source-protected" as const,
+        modelLayerStrength: backgroundPlate ? 0.92 : 0,
       },
       qualityWarning: [],
       shouldRetry: false,
       hardBlock: false,
       skill: { name: adapter.name, implementation: adapter.implementation, sourceUrl: adapter.sourceUrl },
       skillAnalysis: plan.photoAnalysis,
-      skillRecipe: `${plan.recipe} 本次采用固定工作流：模型只识别主体关系及纸裁外背景证据区，摄影域由浏览器直接读取上传照片的原始同坐标像素；纸裁只采用已编译的主体—支撑关系域。背景证据保持原图坐标、轮廓、方向和源色，植物转为拓印块面，水面与天空转为断续干刷，建筑与栏杆转为稀疏结构线，地面与岩石转为低密度网点；每张图最多采用两种相容印刷语言，安静区域恢复暖纸留白，不再全幅铺统一纹样。主体不会被生图模型重绘或移动。`,
+      skillRecipe: `${plan.recipe} 本次采用隔离式固定工作流：模型只读取纸裁外背景证据，并单独生成一张无主体、无撕口的纸上插画底板；它会把重复细节压缩为一个主形体和最多两个辅助印记，以一种主版画语言组织低密度墨迹和有信息的暖纸静区。浏览器随后才从上传照片的原始同坐标像素覆盖主体、支撑关系域与自然撕边，因此背景可以更有作者性，而主体不会被生图模型重绘、缩放或移动。${backgroundPlate ? "背景模型已成功生成。" : "本次背景模型暂不可用，已自动使用本地源图版画层降级交付。"}`,
     });
   }
   const correction = body.qualityCorrection?.trim().slice(0, 600);
