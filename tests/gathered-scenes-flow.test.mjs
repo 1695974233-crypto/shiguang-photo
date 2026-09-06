@@ -16,7 +16,7 @@ test("gathered scenes uses an isolated authored background plate plus determinis
   assert.match(route, /layout: "scene-fragment"/);
   assert.match(route, /backgroundLayerMode: backgroundPlate \? "authored-plate"/);
   assert.match(route, /modelLayerStrength: backgroundPlate \? 0\.92 : 0/);
-  assert.match(route, /一个主形体和最多两个辅助印记/);
+  assert.match(route, /一个深墨锚点、一组灰绿或灰蓝的大形体、大片暖纸、一条克制橙线/);
   assert.match(route, /backgroundZones: sceneBackgroundPlan\.backgroundZones\.map/);
   assert.match(route, /photoAnchors: \[/);
   assert.match(route, /\.\.\.sceneBackgroundPlan\.subjectBox/);
@@ -34,7 +34,17 @@ test("gathered scenes generates only a background plate and safely falls back lo
   assert.match(route, /避免产生主体偏移/);
   assert.match(route, /generateGatheredBackgroundPlate/);
   assert.match(route, /不得描绘、复制、替换或新增主要主体/);
-  assert.match(route, /不得生成照片窗口、人物或主体剪影、撕洞、撕边/);
+  assert.match(route, /不得生成人物、动物、主体剪影、照片区域/);
+  assert.match(route, /不得在底板上画出洞口、撕边、轮廓圈或相框/);
+  assert.match(route, /粗颗粒丝网\/浮雕印刷的大块残缺覆盖为主/);
+  assert.match(route, /删去约80%至92%/);
+  assert.match(route, /整页只保留3至7处/);
+  assert.match(route, /不得连续复制、阵列、铺陈/);
+  assert.match(route, /至少50%至65%保留连续、能呼吸的暖纸/);
+  assert.match(route, /不能被浅网点、淡云、细线或重复小图案偷偷填满/);
+  assert.match(route, /面积低于整页1%/);
+  assert.match(route, /版面必须不对称/);
+  assert.match(route, /主形体和中间调不得都藏在稍后会被覆盖的摄影岛下面/);
   assert.match(route, /本地背景降级 \+ 原像素合成/);
   assert.match(route, /浏览器随后才从上传照片的原始同坐标像素覆盖主体/);
   assert.doesNotMatch(route, /拾景纸刊任务没有成功提交/);
