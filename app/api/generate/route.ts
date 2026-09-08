@@ -1,3 +1,6 @@
+import { buildGatheredBackgroundPrompt } from "../../gathered-background-prompt";
+import type { BackgroundArtDirection } from "../../gathered-background-prompt";
+import { planGatheredBackgroundArt } from "../../gathered-background-art";
 import { skillAdapters } from "../../skill-runtime";
 import { inlineImageForBrowser } from "../../inline-image";
 import {
@@ -621,45 +624,12 @@ function gatheredBackgroundModelLabel(modelId: string) {
   return defaultModelChain.find((item) => item.id === modelId)?.label || modelId;
 }
 
-function rankedBackgroundZones(plan: SceneBackgroundPlan) {
-  const ordinaryQuietClasses = /天空|sky|云|cloud/i;
-  return [...plan.backgroundZones]
-    .map((zone) => {
-      const area = boxArea(zone.sourceBox);
-      const quietPenalty = ordinaryQuietClasses.test(`${zone.name} ${zone.objectClass}`) ? 0.62 : 1;
-      return { zone, score: zone.confidence * Math.sqrt(Math.max(0.001, area)) * quietPenalty };
-    })
-    .sort((left, right) => right.score - left.score)
-    .map((item) => item.zone)
-    .slice(0, 3);
-}
-
-function compileGatheredBackgroundPrompt(body: GenerateRequest, plan: SceneBackgroundPlan) {
+function compileGatheredBackgroundPrompt(body: GenerateRequest, plan: SceneBackgroundPlan, art?: BackgroundArtDirection) {
   const dimensions = body.image ? imageDimensions(body.image) : undefined;
   const orientation = dimensions
     ? dimensions.width >= dimensions.height ? "横向" : "竖向"
     : "保持输入方向";
-  const selectedZones = rankedBackgroundZones(plan);
-  const photoDomain = plan.photoDomainBox;
-  const coveredRegion = `左${Math.round(photoDomain.x * 100)}%、上${Math.round(photoDomain.y * 100)}%、宽${Math.round(photoDomain.width * 100)}%、高${Math.round(photoDomain.height * 100)}%`;
-  const evidence = selectedZones.map((zone, index) => (
-    `${index + 1}. ${zone.name}（${zone.objectClass}），原位置 ${zone.sourceLocation}；可核验特征：${zone.visualEvidence}；` +
-    `保持 ${zone.direction}；可把${zone.treatment}作为形态提示，但必须服从下方统一的丝网版画语言。`
-  )).join("\n");
-  return `你正在制作一张${orientation}、与输入图片同宽高比的“纸上背景丝网版画底板”。这不是最终海报：程序稍后会把原照片中的固定摄影岛覆盖在${coveredRegion}附近。该坐标只用于安排疏密，不得在底板上画出洞口、撕边、轮廓圈或相框。输入图片是唯一场景来源；不得描绘、复制、替换或新增主要主体“${plan.subject}”，也不得生成人物、动物、主体剪影、照片区域、贴纸、文字、Logo、水印或样机。整张输出只能是平整扫描的暖象牙色纤维纸与二维印刷墨迹。
-
-审美目标是有作者判断的现代编辑纸刊，而不是淡化照片或普通插画。先从以下源图证据中选一个最能代表场景的主形体，再取最多两个辅助形体；合并重复物，删去约80%至92%的枝叶、波纹、砖石和杂点。整页只保留3至7处彼此有呼吸距离的大型印痕或印痕组；同一种叶片、云团、波纹、树冠、砖块等母题不得连续复制、阵列、铺陈或占满超过页面约三分之一。允许在它原有的同一侧或同一空间层级内放大、裁断、错位和留缺口，让形体变成清楚的大轮廓与有方向的大墨块；只需保持原图的上下左右关系、地平线、透视走势和场景身份，不要逐像素描摹，也不要完整追踪整条天际线或水岸：
-${evidence || "只使用原图可见背景的色彩、明暗、轮廓和方向，做非对象化低密度印痕。"}
-
-统一使用两种相容语法：粗颗粒丝网/浮雕印刷的大块残缺覆盖为主，石墨拓印或粗网点为辅；稀疏结构线只能点到为止，不能把建筑、桥或天际线画成完整线稿。不要使用连续水彩、柔软云雾晕染或均匀铅笔地毯。
-
-建立明确的三级墨色：约7%至14%的页面使用蓝黑或炭黑形成一个有分量的深墨锚点；约12%至24%使用取自原景的灰绿、灰蓝或石墨中间调形成一组较大的残缺印面；至少50%至65%保留连续、能呼吸的暖纸。纸面留白必须形成一至两块面积明显的大静区，不能被浅网点、淡云、细线或重复小图案偷偷填满。安静区围绕“${plan.quietBackgroundZone || "原图低信息背景"}”形成真正的纸面静区，允许接近纸色。主形体和中间调不得都藏在稍后会被覆盖的摄影岛下面，至少让一个大形体从摄影岛的一侧接近撕边、在另一侧或页面边缘留下不对称的可见重量。
-
-加入且只加入一条极细、略有断墨的陶土橙或朱砂橙结构线，面积低于整页1%。这条线必须沿原景已有的屋脊、岸线、叶柄、栏杆走势或地平线方向运行，可局部贴近摄影岛覆盖区，但不能围成闭合边框，不能成为装饰曲线。除此之外不使用亮色。
-
-版面必须不对称：一侧有较重的深墨或中间调形体，另一侧以纸面和少量断续印迹平衡；形体可以被页面边缘裁断。避免上下左右平均铺开、四周同样密、中心对称、满版重复图案或把每个背景物都画出来。边缘应有真实缺墨、网点聚散、干刷拖痕、纸纤维吃墨和轻微错版，但不能做成脏污滤镜、3D纸层阴影或复古相框。
-
-最终底板应读作对同一原景的大胆版画蒸馏：一个深墨锚点、一组灰绿或灰蓝的大形体、大片暖纸、一条克制橙线。不要画主要主体，不要画摄影岛或撕纸开口；程序将在后续按原坐标叠回真实主体与关系域。`;
+  return buildGatheredBackgroundPrompt(plan, orientation, art);
 }
 
 async function generateGatheredBackgroundPlate(
@@ -668,7 +638,14 @@ async function generateGatheredBackgroundPlate(
   plan: SceneBackgroundPlan,
 ): Promise<GatheredBackgroundPlate | undefined> {
   if (!body.image) return undefined;
-  const prompt = compileGatheredBackgroundPrompt(body, plan);
+  const art = await planGatheredBackgroundArt({
+    apiKey,
+    modelId: process.env.ARK_GATHERED_ANALYSIS_MODEL?.trim()
+      || process.env.ARK_SKILL_MODEL?.trim() || "doubao-seed-2-0-lite-260428",
+    image: body.analysisImage || body.image,
+    plan,
+  });
+  const prompt = compileGatheredBackgroundPrompt(body, plan, art);
   const models = gatheredBackgroundModels();
   for (let index = 0; index < models.length; index += 1) {
     const modelId = models[index];
@@ -871,7 +848,7 @@ export async function POST(request: Request) {
       hardBlock: false,
       skill: { name: adapter.name, implementation: adapter.implementation, sourceUrl: adapter.sourceUrl },
       skillAnalysis: plan.photoAnalysis,
-      skillRecipe: `${plan.recipe} 本次采用隔离式固定工作流：模型只读取纸裁外背景证据，并单独生成一张无主体、无撕口的纸上丝网版画底板；背景以一个深墨锚点、一组灰绿或灰蓝大形体、大片暖纸和一条克制橙线建立不对称疏密层次。浏览器随后才从上传照片的原始同坐标像素覆盖主体、支撑关系域与自然撕边，因此背景可以更有作者性，而主体不会被生图模型重绘、缩放或移动。${backgroundPlate ? "背景模型已成功生成。" : "本次背景模型暂不可用，已自动使用本地源图版画层降级交付。"}`,
+      skillRecipe: `模型依据纸裁外背景证据，把原景的轮廓、方向和颜色提炼成纸上版画：合并重复细节，省略次要碎物，让低信息背景成为安静纸面。绘画形态和墨色取自本张照片，不套固定题材素材或固定配色。浏览器随后才从上传照片的原始同坐标像素覆盖主体、支撑关系域与自然撕边，主体不参与背景重绘。${backgroundPlate ? "背景底板已生成。" : "本次背景模型暂不可用，已使用本地源图版画层降级交付。"}`,
     });
   }
   const correction = body.qualityCorrection?.trim().slice(0, 600);

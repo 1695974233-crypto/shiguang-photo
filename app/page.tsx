@@ -161,7 +161,7 @@ export default function Home() {
     setStatus(isPixelRelight
       ? "正在定位人物并进行像素级补光，原照片不会交给生图模型重绘…"
       : selectedScene.id === "gathered-scenes"
-        ? "正在识别主体与支撑关系，并用原图像素构建固定纸裁；不会把整张照片交给生图模型重绘…"
+        ? "正在识别原景并绘制背景；主体将保留原图像素，纸裁由程序合成…"
       : mode === "refine" ? "Skill 正在阅读上一版作品并编译本次修改…" : "Skill 正在阅读照片、选择构图并编译专属方案，然后再生成图片…");
 
     try {
