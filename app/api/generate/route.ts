@@ -578,12 +578,38 @@ function imageMimeType(base64: string) {
   return "image/jpeg";
 }
 
+// Seedream SSE protocol: deliver the first completed image, not a partial preview.
+async function readArkImageStream(response: Response): Promise<ArkResponse> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      let boundary;
+      while ((boundary = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, boundary).trim(); buffer = buffer.slice(boundary + 1);
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "[DONE]") continue;
+        const event = JSON.parse(raw);
+        if (event.type === "image_generation.partial_succeeded" && (event.b64_json || event.url)) {
+          return { data: [{ b64_json: event.b64_json, url: event.url }], usage: event.usage };
+        }
+        if (event.error) throw new Error(event.error.message || "模型未能生成图片。");
+      }
+      if (done) throw new Error("模型响应结束但没有返回完成图。");
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+}
+
 async function upstreamJson(response: Response) {
   try { return await response.json(); }
   catch { throw new Error(`模型服务暂未返回有效结果（HTTP ${response.status}）。`); }
 }
 
-async function generateImageCandidate(apiKey: string, modelId: string, prompt: string, imageInputs: string[], timeoutMs: number) {
+async function generateImageCandidate(apiKey: string, modelId: string, prompt: string, imageInputs: string[], timeoutMs: number, stream = false) {
   const upstream = await fetch("https://ark.cn-beijing.volces.com/api/v3/images/generations", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -593,13 +619,15 @@ async function generateImageCandidate(apiKey: string, modelId: string, prompt: s
       image: imageInputs,
       size: "2K",
       sequential_image_generation: "disabled",
-      stream: false,
+      stream,
       response_format: "b64_json",
       watermark: false,
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const data = await upstreamJson(upstream) as ArkResponse;
+  const data = stream && upstream.ok && upstream.headers.get("content-type")?.includes("text/event-stream")
+    ? await readArkImageStream(upstream)
+    : await upstreamJson(upstream) as ArkResponse;
   if (!upstream.ok) throw new Error(data.error?.message || `火山方舟调用失败（${upstream.status}）。`);
   const first = data.data?.[0];
   const image = first?.b64_json
@@ -945,7 +973,7 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
   }));
 
   let lastError = "模型暂时无法生成图片。";
-  const generationDeadline = Date.now() + 210_000;
+  const generationDeadline = Date.now() + (body.stage === "image" ? 270_000 : 210_000);
   for (const [index, model] of models.entries()) {
     const remainingMs = generationDeadline - Date.now();
     if (remainingMs < 15_000) {
@@ -960,8 +988,8 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
           : [];
       const imageInputs = [body.image, ...styleReferences];
       const generateWithSelectedModel = (candidatePrompt: string, timeoutMs: number) =>
-        generateImageCandidate(apiKey, model.id, candidatePrompt, imageInputs, timeoutMs);
-      const firstGenerationTimeout = body.stage === "image" ? 180_000 : index === 0 ? 120_000 : 80_000;
+        generateImageCandidate(apiKey, model.id, candidatePrompt, imageInputs, timeoutMs, body.stage === "image");
+      const firstGenerationTimeout = body.stage === "image" ? 240_000 : index === 0 ? 120_000 : 80_000;
       let candidate = await generateWithSelectedModel(prompt, Math.min(firstGenerationTimeout, remainingMs));
       const usesLocalComposite = adapter.id === "abstract-editorial";
       let review: QualityReview | undefined;
@@ -1013,6 +1041,7 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
       });
     } catch (error) {
       if (body.stage === "image") {
+        console.warn("[minimal-zine] image stage failed", error instanceof Error ? error.name : "UnknownError");
         return Response.json({ error: "本次生图连接未能完成，无法确认模型是否已生成。为避免重复扣费，没有自动重试或切换模型。请稍后再手动尝试。" }, { status: 502 });
       }
       lastError = error instanceof Error ? error.message : `${model.label} 调用失败。`;

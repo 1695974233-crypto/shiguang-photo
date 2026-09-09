@@ -12,7 +12,8 @@ test('minimal stages deliver image before review and never retry an uncertain im
       assert.match(body.prompt, /一块连续自然摄影/);
       assert.equal(body.image.length, 2);
       if (failImage) throw new TypeError('fetch failed');
-      return Response.json({ data: [{ b64_json: pixel.split(',')[1] }] });
+      assert.equal(body.stream, true);
+      return new Response('data: '+JSON.stringify({type:'image_generation.partial_succeeded',b64_json:pixel.split(',')[1]})+'\n\n', {headers:{'content-type':'text/event-stream'}});
     }
     if (body.messages[0].content.includes('图片编辑结果质检员')) { reviews++; throw new Error('review timeout'); }
     analyses++;
