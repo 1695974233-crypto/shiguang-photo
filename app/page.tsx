@@ -77,6 +77,7 @@ const scenes: Scene[] = [
   { id: "surreal-pop", name: "单一异物波普", eyebrow: "黑白现实 · 巨物拼贴", description: "以真实照片为锚点，只加入一个与场景有关的不可能巨物。", fidelity: "保留主体，大幅创作", preview: "/previews/surreal-pop.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
   { id: "doodle-life", name: "微型人物涂鸦", eyebrow: "真实物件 · 原始黑线", description: "保留一个真实核心物件，让微型人物围绕它完成一个小故事。", fidelity: "保留核心物件", preview: "/previews/doodle-life.jpg", credit: "独立功能实现 · 不使用品牌资产" },
   { id: "muted-zine", name: "褪色纸页", eyebrow: "柔和色调 · 诗意纸刊", description: "降低饱和度与对比度，让画面变成温柔、安静的纸上记录。", fidelity: "适度保留原照", preview: "/previews/muted-zine.jpg", credit: "独立功能实现 · 案例使用你的玫瑰照片" },
+  { id: "light-ink-wash", name: "淡彩水墨", eyebrow: "原色淡彩 · 米白留白", description: "把照片里的景物化为柔和色块与淡墨笔触，保留原来的构图和主要配色。", fidelity: "保留场景结构，全图绘画化", preview: "/previews/light-ink-wash.png", credit: "AI 风格示意 · 实际成图依上传照片变化", previewNote: "默认配底部英文标题与描述短句；可填写自己的文案，也可以输入“不要文字”。" },
   { id: "ink-wash", name: "当代水墨转译", eyebrow: "淡墨留白 · 编辑海报", description: "依据照片结构选择纸色和墨法，而不是套一层水彩滤镜。", fidelity: "保留结构，重新绘制", preview: "/previews/ink-wash.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
   { id: "portrait-relight", name: "自然人像补光", eyebrow: "曝光修复 · 不重绘五官", description: "分析人物与背景曝光差，只调整光线、肤色和阴影细节。", fidelity: "完整保留人物", preview: "/previews/portrait-relight-safe.jpg", previewPosition: "center", credit: "像素级后期 · 不调用生图模型", previewNote: "实际处理只在你的原图像素上局部补光，保持原构图，不重画人物和背景。" },
 ];
@@ -396,7 +397,7 @@ export default function Home() {
 
         <div className="assistant-line">
           <span className="assistant-avatar">拾</span>
-          <p>是否需要在图片里面加文字？请写下文字内容并确认位置，例如：在左上角添加“夏日散步”。</p>
+          <p>{selectedScene?.id === "light-ink-wash" ? "默认在底部配英文标题和一句简短描述。你可以指定文案与位置，或填写“不要文字”。" : "是否需要在图片里面加文字？请写下文字内容并确认位置，例如：在左上角添加“夏日散步”。"}</p>
         </div>
 
         <textarea

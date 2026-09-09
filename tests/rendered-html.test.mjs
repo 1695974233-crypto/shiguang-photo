@@ -28,11 +28,13 @@ test("server-renders the Shiguang photo studio", async () => {
   assert.doesNotMatch(html, /ARK_API_KEY|GENERATION_ACCESS_CODES|SG-[A-F0-9]{8}/);
 });
 
-test("renders all ten selectable scenes", async () => {
+test("renders all eleven selectable scenes", async () => {
   const response = await render();
   const html = await response.text();
   const sceneButtons = html.match(/class="scene-button(?: selected)?"/g) ?? [];
-  assert.equal(sceneButtons.length, 10);
+  assert.equal(sceneButtons.length, 11);
   assert.match(html, /拾景纸刊/);
+  assert.match(html, /淡彩水墨/);
+  assert.match(html, /当代水墨转译/);
   assert.doesNotMatch(html, /层叠撕纸刊/);
 });

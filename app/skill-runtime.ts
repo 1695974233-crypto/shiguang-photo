@@ -1,3 +1,4 @@
+import { lightInkWashWorkflow, lightInkWashReview } from "./light-ink-wash";
 import { scenePaperCollageSeparationContrast } from "./scene-paper-collage-policy";
 
 export type SkillAdapter = {
@@ -49,6 +50,11 @@ export const skillAdapters: Record<string, SkillAdapter> = {
     id: "muted-zine", name: "褪色纸页", implementation: "独立功能实现",
     workflow: `先判断照片中最安静的主体、最值得保留的情绪证据和两至三种低饱和源色。把主体保留为小型褪色摄影剪片、低对比转印或近似铅笔印刷，并用破碎薄纸、淡网点、模糊石墨痕或极淡水洗建立时间感。整体保留约70%至85%的低信息空间，颜色从原图降为与主题相符的灰红、暗植物色、烟蓝等低彩组合。材料痕迹要克制且不平均覆盖全图。`,
     review: "检查饱和度和对比是否真正降低、主体是否仍有情绪证据、留白是否充分、是否误用鲜艳标题、满版照片或统一滤镜。",
+  },
+  "light-ink-wash": {
+    id: "light-ink-wash", name: "淡彩水墨", implementation: "独立功能实现",
+    workflow: lightInkWashWorkflow,
+    review: lightInkWashReview,
   },
   "ink-wash": {
     id: "ink-wash", name: "当代水墨转译", implementation: "独立功能实现",
