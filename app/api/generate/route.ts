@@ -16,6 +16,8 @@ import {
   subjectPositionInsideDomain,
 } from "../../photo-domain-geometry";
 import type { RelationshipEvidence, SubjectFrameContact } from "../../photo-domain-geometry";
+import { streamResult } from "../../generation-transport";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -29,6 +31,9 @@ type GenerateRequest = {
   ratio?: string;
   mode?: "new" | "refine";
   qualityCorrection?: string;
+  stage?: "plan" | "image" | "review";
+  planToken?: string;
+  candidateImage?: string;
 };
 
 function codesMatch(received: string, expected: string) {
@@ -573,6 +578,11 @@ function imageMimeType(base64: string) {
   return "image/jpeg";
 }
 
+async function upstreamJson(response: Response) {
+  try { return await response.json(); }
+  catch { throw new Error(`模型服务暂未返回有效结果（HTTP ${response.status}）。`); }
+}
+
 async function generateImageCandidate(apiKey: string, modelId: string, prompt: string, imageInputs: string[], timeoutMs: number) {
   const upstream = await fetch("https://ark.cn-beijing.volces.com/api/v3/images/generations", {
     method: "POST",
@@ -589,7 +599,7 @@ async function generateImageCandidate(apiKey: string, modelId: string, prompt: s
     }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const data = await upstream.json() as ArkResponse;
+  const data = await upstreamJson(upstream) as ArkResponse;
   if (!upstream.ok) throw new Error(data.error?.message || `火山方舟调用失败（${upstream.status}）。`);
   const first = data.data?.[0];
   const image = first?.b64_json
@@ -760,6 +770,19 @@ async function reviewGeneratedImage(apiKey: string, body: GenerateRequest, outpu
   } satisfies QualityReview;
 }
 
+function sealPlan(plan: SkillPlan, key: string) {
+  const payload = Buffer.from(JSON.stringify({ plan, expires: Date.now() + 30 * 60_000 })).toString("base64url");
+  return `${payload}.${createHmac("sha256", key).update(payload).digest("hex")}`;
+}
+function openPlan(token: string, key: string): SkillPlan {
+  const [payload, signature] = token.split(".");
+  const expected = createHmac("sha256", key).update(payload || "").digest("hex");
+  if (!signature || signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new Error("生成方案无效，请重新生成。");
+  const value = JSON.parse(Buffer.from(payload, "base64url").toString());
+  if (value.expires < Date.now()) throw new Error("生成方案已过期，请重新生成。");
+  return value.plan;
+}
+
 export async function POST(request: Request) {
   let body: GenerateRequest;
   try { body = await request.json() as GenerateRequest; }
@@ -789,6 +812,23 @@ export async function POST(request: Request) {
     return Response.json({ error: "图片数据过大，请换一张小于 10MB 的图片。" }, { status: 413 });
   }
 
+  if (body.stage && adapter.id === "minimal-zine") {
+    if (!["plan", "image", "review"].includes(body.stage)) return Response.json({ error: "无效生成阶段。" }, { status: 400 });
+    return streamResult(() => runGeneration(body, apiKey, adapter));
+  }
+  return runGeneration(body, apiKey, adapter);
+}
+
+async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typeof skillAdapters[string]) {
+  if (body.stage === "review" && adapter.id === "minimal-zine") {
+    if (!body.candidateImage || body.candidateImage.length > 20_000_000) return Response.json({ error: "没有可检查的图片。" }, { status: 400 });
+    try {
+      const review = await reviewGeneratedImage(apiKey, body, body.candidateImage, adapter, 45_000);
+      return Response.json({ qualityWarning: review.pass ? [] : review.issues, qualityCorrection: review.pass ? "" : review.correction });
+    } catch {
+      return Response.json({ qualityWarning: ["图片已生成，本次质量检查未完成，可直接下载。"] });
+    }
+  }
   const instruction = body.instruction?.trim();
   let plan: SkillPlan;
   let sceneBackgroundPlan: SceneBackgroundPlan | undefined;
@@ -804,13 +844,18 @@ export async function POST(request: Request) {
     plan = scenePaperCollageFallbackPlan(body, instruction || "", sceneBackgroundPlan);
   } else {
     try {
-      plan = await compileSkillPlan(apiKey, body, instruction || "", adapter);
+      plan = body.stage === "image" && adapter.id === "minimal-zine"
+        ? openPlan(body.planToken || "", apiKey)
+        : await compileSkillPlan(apiKey, body, instruction || "", adapter);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "照片分析失败。";
       return Response.json({ error: `所选 Skill 还没有完成读图，因此没有继续扣费生图。${reason}` }, { status: 502 });
     }
   }
 
+  if (body.stage === "plan" && adapter.id === "minimal-zine") {
+    return Response.json({ planToken: sealPlan(plan, apiKey) });
+  }
   if (adapter.id === "gathered-scenes" && sceneBackgroundPlan) {
     const backgroundPlate = await generateGatheredBackgroundPlate(apiKey, body, sceneBackgroundPlan);
     const relationshipAnchors = sceneBackgroundPlan.relationshipEvidence
@@ -916,13 +961,13 @@ export async function POST(request: Request) {
       const imageInputs = [body.image, ...styleReferences];
       const generateWithSelectedModel = (candidatePrompt: string, timeoutMs: number) =>
         generateImageCandidate(apiKey, model.id, candidatePrompt, imageInputs, timeoutMs);
-      const firstGenerationTimeout = index === 0 ? 120_000 : 80_000;
+      const firstGenerationTimeout = body.stage === "image" ? 180_000 : index === 0 ? 120_000 : 80_000;
       let candidate = await generateWithSelectedModel(prompt, Math.min(firstGenerationTimeout, remainingMs));
       const usesLocalComposite = adapter.id === "abstract-editorial";
       let review: QualityReview | undefined;
       const reviewBudgetMs = Math.min(45_000, generationDeadline - Date.now());
       try {
-        if (reviewBudgetMs >= 8_000) review = await reviewGeneratedImage(apiKey, body, candidate.image, adapter, reviewBudgetMs);
+        if (body.stage !== "image" && reviewBudgetMs >= 8_000) review = await reviewGeneratedImage(apiKey, body, candidate.image, adapter, reviewBudgetMs);
       }
       catch { review = undefined; }
 
@@ -967,6 +1012,9 @@ export async function POST(request: Request) {
         usage: candidate.usage,
       });
     } catch (error) {
+      if (body.stage === "image") {
+        return Response.json({ error: "本次生图连接未能完成，无法确认模型是否已生成。为避免重复扣费，没有自动重试或切换模型。请稍后再手动尝试。" }, { status: 502 });
+      }
       lastError = error instanceof Error ? error.message : `${model.label} 调用失败。`;
     }
   }

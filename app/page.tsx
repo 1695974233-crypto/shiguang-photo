@@ -1,5 +1,6 @@
 "use client";
 
+import { readGenerationResponse } from "./generation-transport";
 import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
 import { applyPortraitRelight, createAnalysisThumbnail, createGenerationInput, PortraitRelightSpec } from "./portrait-relight";
 import { applyRealScenePaperComposite, RealScenePaperCompositeSpec } from "./real-scene-paper-composite";
@@ -150,11 +151,16 @@ export default function Home() {
     setStatus(source ? `已选择「${scene.name}」。可以补充文字或直接生成。` : `已选择「${scene.name}」。上传照片后即可生成。`);
   }
 
+  const minimalInFlight = useRef(false);
+
   async function requestGeneration(mode: "new" | "refine", refinement = "", forcedCorrection = "", automaticRetryAttempt = 0) {
     if (!source || !selectedScene) {
       setError("请先上传照片并选择一个场景。");
       return;
     }
+    if (minimalInFlight.current) return;
+    minimalInFlight.current = selectedScene.id === "minimal-zine";
+    let candidateReceived = false;
     setIsGenerating(true);
     setError("");
     const inputImage = selectedScene.id === "gathered-scenes" ? source : mode === "refine" && result ? result : source;
@@ -170,10 +176,7 @@ export default function Home() {
       const generationImage = selectedScene.id === "gathered-scenes"
         ? await createGenerationInput(inputImage)
         : inputImage;
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const payload = {
           image: generationImage,
           analysisImage,
           sceneId: selectedScene.id,
@@ -183,10 +186,37 @@ export default function Home() {
           ratio,
           mode,
           qualityCorrection: forcedCorrection || (mode === "new" ? qualityCorrection : ""),
-        }),
-      });
-      let data = await response.json() as GenerationResponse;
-      if (response.ok && data.pendingTask) {
+      };
+      const submit = async (extra: object = {}) => {
+        let response: Response;
+        try {
+          response = await fetch("/api/generate", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...payload, ...extra }),
+          });
+        } catch { throw new Error("生成连接中断，未自动重复提交。请稍后手动尝试。"); }
+        return readGenerationResponse<GenerationResponse & { planToken?: string }>(response);
+      };
+      let data: GenerationResponse;
+      if (selectedScene.id === "minimal-zine") {
+        setStatus("正在分析照片并准备极简 Zine 构图…");
+        const plan = await submit({ stage: "plan" });
+        setStatus("构图已准备好，正在生成极简 Zine；请保持页面打开…");
+        data = await submit({ stage: "image", planToken: plan.planToken });
+        if (!data.image) throw new Error("模型没有返回图片，未自动重复提交。");
+        setResult(data.image);
+        candidateReceived = true;
+        setStatus("图片已生成，可以下载；正在完成质量检查…");
+        try {
+          const review = await submit({ stage: "review", candidateImage: await createAnalysisThumbnail(data.image) });
+          data = { ...data, ...review };
+        } catch {
+          data.qualityWarning = ["本次质量检查未完成，已保留生成图片，可直接下载"];
+        }
+      } else {
+        data = await submit();
+      }
+      if (data.pendingTask) {
         if (data.skill && data.skillAnalysis && data.skillRecipe) {
           setSkillResult({ ...data.skill, analysis: data.skillAnalysis, recipe: data.skillRecipe });
         }
@@ -206,7 +236,7 @@ export default function Home() {
                 reviewContext: data.pendingTask.reviewContext,
               }),
             });
-            const taskData = await taskResponse.json() as {
+            const taskData = await readGenerationResponse(taskResponse) as {
               status?: "pending" | "succeeded";
               taskStatus?: string;
               image?: string;
@@ -245,7 +275,7 @@ export default function Home() {
         }
         if (!data.image) throw new Error("生成等待超过 10 分钟，请稍后再试。");
       }
-      if (!response.ok || (!data.image && !data.localEdit && !data.localComposite)) throw new Error(data.error || "生成失败，请稍后重试。");
+      if (!data.image && !data.localEdit && !data.localComposite) throw new Error(data.error || "生成失败，请稍后重试。");
       if (selectedScene.id === "gathered-scenes" && !data.localComposite && data.shouldRetry && data.qualityCorrection && automaticRetryAttempt < 1) {
         setQualityCorrection(data.qualityCorrection);
         setStatus(`质量检查发现：${data.qualityWarning?.slice(0, 2).join("；") || "摄影域或外部背景分区不符合原图"}。正在自动纠偏一次，不会后贴原图主体…`);
@@ -295,8 +325,9 @@ export default function Home() {
             : `作品已生成${modelStatus}。满意就下载，不满意可以继续说怎么改。`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "生成失败，请稍后重试。");
-      setStatus("这次没有生成成功，你的照片和设置都还保留着。");
+      setStatus(candidateReceived ? "图片已保留，可以下载；后续检查未完成。" : "这次没有取得新图片，你的照片、设置和已有作品都还保留着。");
     } finally {
+      minimalInFlight.current = false;
       setIsGenerating(false);
     }
   }
