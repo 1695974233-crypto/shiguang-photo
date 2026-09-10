@@ -70,7 +70,7 @@ type GenerationResponse = {
 };
 
 const scenes: Scene[] = [
-  { id: "minimal-zine", name: "极简 Zine", eyebrow: "大片留白 · 微型编辑", description: "在暖白纸面上只留一个小型照片事件，用短字、印刷颗粒和一种高纯颜色制造安静张力。", fidelity: "保留主体，可裁切缩放", preview: "/previews/minimal-zine.png", credit: "GitHub 原版 Skill · gc-minimal-zine-poster v0.3.1", creditUrl: "https://github.com/LiamGvchi/gc-minimal-zine-poster", previewNote: "70%–90% 为开放纸面；视觉簇占 8%–25%。当前玫瑰案例使用放大后的约 24% 版本。" },
+  { id: "minimal-zine", name: "极简 Zine", eyebrow: "大片留白 · 微型编辑", description: "在暖白纸面上只留一个小型编辑事件，用视觉隐喻、短字、印刷颗粒和一种高纯颜色制造安静张力。", fidelity: "保留主体，可裁切与重新组织", preview: "/previews/minimal-zine.png", credit: "GitHub 原版 Skill · gc-minimal-zine-poster v0.3.1", creditUrl: "https://github.com/LiamGvchi/gc-minimal-zine-poster", previewNote: "当前玫瑰图是 GitHub 原版双面板实测成品；它只用于页面预览，不会作为生成参考图。" },
   { id: "abstract-editorial", name: "结构记忆编辑", eyebrow: "真照 + 抽象记忆", description: "忠实保留原照片，再从画面关系中提炼一块克制的抽象视觉面板。", fidelity: "高度保留原照", preview: "/previews/abstract-editorial.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
   { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "主体真照 · 背景绘画", description: "根据主体、支撑物和背景关系决定手撕边界：内部保留原图摄影，外部把同一场景背景绘画化。", fidelity: "主体位置与自然摄影锁定", preview: "/previews/gathered-scenes.jpg", credit: "个人 Skill · make-scene-paper-collage", previewNote: "摄影域自适应且不超过整页 60%；内部只能是原图自然摄影，外围绘画元素全部来自同一照片背景。" },
   { id: "scene-distillation", name: "场景抽象", eyebrow: "提取关系 · 重新创作", description: "提取照片中的主体关系、方向和情绪，重新组织成一张独立纸面插画。", fidelity: "允许大幅创作", preview: "/previews/scene-distillation.jpg", credit: "独立功能实现 · 不使用第三方 Skill 内容" },
@@ -92,8 +92,8 @@ const ratios = [
 ];
 
 const minimalLayoutModes = [
-  { id: "locked", label: "固定放大版" },
-  { id: "random", label: "随机构图" },
+  { id: "original", label: "GitHub 原版" },
+  { id: "enlarged", label: "自定义放大版" },
 ] as const;
 
 export default function Home() {
@@ -105,7 +105,7 @@ export default function Home() {
   const [instruction, setInstruction] = useState("");
   const [textPosition, setTextPosition] = useState("AI 自动");
   const [ratio, setRatio] = useState("original");
-  const [minimalLayoutMode, setMinimalLayoutMode] = useState<"locked" | "random">("locked");
+  const [minimalLayoutMode, setMinimalLayoutMode] = useState<"original" | "enlarged">("original");
   const [accessCode, setAccessCode] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -436,7 +436,7 @@ export default function Home() {
 
         <div className="assistant-line">
           <span className="assistant-avatar">拾</span>
-          <p>{selectedScene?.id === "light-ink-wash" ? "默认在底部配英文标题和一句简短描述。你可以指定文案与位置，或填写“不要文字”。" : selectedScene?.id === "minimal-zine" ? "极简 Zine 默认不加字。需要文字时请直接填写，文字会贴近照片视觉簇，不会单独飘在远处。" : "是否需要在图片里面加文字？请写下文字内容并确认位置，例如：在左上角添加“夏日散步”。"}</p>
+          <p>{selectedScene?.id === "light-ink-wash" ? "默认在底部配英文标题和一句简短描述。你可以指定文案与位置，或填写“不要文字”。" : selectedScene?.id === "minimal-zine" ? minimalLayoutMode === "original" ? "GitHub 原版会根据照片选择一种编辑配方，并生成一句很短的注记。你可以填写自己的文字，或明确输入“不要文字”。" : "自定义放大版固定左下大视觉簇，默认无字；需要文字时请直接填写，文字会贴近照片视觉簇。" : "是否需要在图片里面加文字？请写下文字内容并确认位置，例如：在左上角添加“夏日散步”。"}</p>
         </div>
 
         <textarea
@@ -452,9 +452,9 @@ export default function Home() {
             <span>构图方式</span>
             <div>
               <div className="chip-row">
-                {minimalLayoutModes.map((item) => <button type="button" key={item.id} className={minimalLayoutMode === item.id ? "chip active" : "chip"} onClick={() => { setMinimalLayoutMode(item.id); if (item.id === "locked") setRatio("portrait"); }}>{item.label}</button>)}
+                {minimalLayoutModes.map((item) => <button type="button" key={item.id} className={minimalLayoutMode === item.id ? "chip active" : "chip"} onClick={() => { setMinimalLayoutMode(item.id); setRatio("portrait"); }}>{item.label}</button>)}
               </div>
-              <small>{minimalLayoutMode === "locked" ? "默认：3:5 竖版，视觉簇固定在左下区域并占画面 22%–25%。" : "按 GitHub 原版变化系统选择其他布局，视觉簇可在 8%–25% 之间变化。"}</small>
+              <small>{minimalLayoutMode === "original" ? "默认：完整执行原版变化系统，选择视觉隐喻、焦点载体、排版、强调色与印刷配方；视觉簇占 8%–25%。" : "固定 3:5 竖版和左下 22%–25% 视觉簇，默认无字；用色块、裁片或关系图形补足编辑结构。"}</small>
             </div>
           </div>
         )}
@@ -469,10 +469,10 @@ export default function Home() {
         <div className="option-group">
           <span>画面比例</span>
           <div className="chip-row">
-            {ratios.map((item) => <button type="button" key={item.id} disabled={(selectedScene?.id === "gathered-scenes" && item.id !== "original") || (selectedScene?.id === "minimal-zine" && minimalLayoutMode === "locked" && item.id !== "portrait")} className={ratio === item.id ? "chip active" : "chip"} onClick={() => setRatio(item.id)}>{item.label}</button>)}
+            {ratios.map((item) => <button type="button" key={item.id} disabled={(selectedScene?.id === "gathered-scenes" && item.id !== "original") || (selectedScene?.id === "minimal-zine" && minimalLayoutMode === "enlarged" && item.id !== "portrait")} className={ratio === item.id ? "chip active" : "chip"} onClick={() => setRatio(item.id)}>{item.label}</button>)}
           </div>
           {selectedScene?.id === "gathered-scenes" && <small>固定工作流保持原图比例与完整坐标，避免缩放或重新取景导致主体偏移。</small>}
-          {selectedScene?.id === "minimal-zine" && minimalLayoutMode === "locked" && <small>固定放大版使用 3:5 竖版；切换“随机构图”后可选择其他比例。</small>}
+          {selectedScene?.id === "minimal-zine" && minimalLayoutMode === "enlarged" && <small>自定义放大版固定使用 3:5 竖版；GitHub 原版默认 3:5，也允许你明确选择其他比例。</small>}
         </div>
 
         <div className="access-code-box">
@@ -493,7 +493,7 @@ export default function Home() {
         <div className="generation-bar">
           <div>
             <strong>{selectedScene?.name ?? "尚未选择场景"}</strong>
-            <span>{selectedScene?.id === "portrait-relight" ? "保持原图比例 · 像素级后期" : selectedScene?.id === "gathered-scenes" ? "保持原图比例 · 原像素固定纸裁" : selectedScene?.id === "minimal-zine" ? `${minimalLayoutMode === "locked" ? "固定放大版" : "随机构图"} · ${selectedRatio} · ${instruction.trim() ? textPosition : "默认无字"}` : `${selectedRatio} · ${textPosition}`}</span>
+            <span>{selectedScene?.id === "portrait-relight" ? "保持原图比例 · 像素级后期" : selectedScene?.id === "gathered-scenes" ? "保持原图比例 · 原像素固定纸裁" : selectedScene?.id === "minimal-zine" ? `${minimalLayoutMode === "original" ? "GitHub 原版" : "自定义放大版"} · ${selectedRatio} · ${instruction.trim() ? textPosition : minimalLayoutMode === "original" ? "自动短注记" : "默认无字"}` : `${selectedRatio} · ${textPosition}`}</span>
           </div>
           <button className="generate-button" type="button" disabled={!canGenerate} onClick={() => void requestGeneration("new")}>
             {isGenerating ? "生成中…" : "生成图片"}

@@ -17,7 +17,7 @@ import {
 } from "../../photo-domain-geometry";
 import type { RelationshipEvidence, SubjectFrameContact } from "../../photo-domain-geometry";
 import { streamResult } from "../../generation-transport";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -29,7 +29,7 @@ type GenerateRequest = {
   instruction?: string;
   textPosition?: string;
   ratio?: string;
-  minimalLayoutMode?: "locked" | "random";
+  minimalLayoutMode?: "original" | "enlarged";
   mode?: "new" | "refine";
   qualityCorrection?: string;
   stage?: "plan" | "image" | "review";
@@ -197,10 +197,47 @@ const ratioPrompts: Record<string, string> = {
   square: "输出 1:1 方形画面。",
 };
 
-function minimalZineTextRule(instruction?: string, textPosition?: string) {
+const minimalOriginalVariants = [
+  "center-fragment + flat silhouette + fragmented floating letters",
+  "lower-left-float + old printed illustration + edge-pressed phrase",
+  "upper-right-block + opaque printed color block + text inside the block",
+  "dual-panel + clean rectangular photo crop + archive microtext",
+  "irregular-cutout + torn-paper clipping + almost-textless caption",
+  "type-led + fragmented type as image + rough letterpress phrase",
+  "dot-orbit + object specimen + scattered letters",
+  "single-specimen + object specimen + low-contrast ghost text",
+  "diagonal-notes + translucent geometric overlay + diagonal words",
+  "edge-counterweight + abstract texture window + distant microtext",
+] as const;
+
+function minimalZineTextRule(layoutMode: GenerateRequest["minimalLayoutMode"], instruction?: string, textPosition?: string) {
   const requested = instruction?.trim();
-  if (!requested) return "用户没有提供文案。输出必须完全无字，不得自行生成标题、诗句、日期、编号、标点、Logo或水印。";
-  return `用户补充要求：${requested}\n只有其中明确要求添加的文字才可出现，并须逐字准确。文字必须紧贴、轻微压住或嵌入照片视觉簇边缘，最近间距不超过画布短边3%，不得单独放在远处形成第二重心。位置偏好“${textPosition || "AI 自动"}”只能在视觉簇附近执行。若要求不要文字则完全无字。`;
+  const noText = Boolean(requested && /不要文字|不要字|无字|去掉文字|no\s*text|textless/i.test(requested));
+  if (noText || (layoutMode === "enlarged" && !requested)) {
+    return "本次必须完全无字，不得出现标题、诗句、日期、编号、标点、Logo或水印。文字轴必须改由视觉簇内部的非文字关系承担：从照片裁片＋单色色块、两片相邻或轻叠裁片、标本对象＋中断细线、局部照片＋透明几何片中只选一种关系；它们必须共同构成一个编辑事件，不能退化为孤立抠图或整株照片贴纸。";
+  }
+  if (!requested) {
+    return "用户没有提供文案。按 GitHub 原版自行创作一句与当前照片隐喻有关的极短私人注记：中文2至8字或英文2至5词；可加极少档案微字。使用打字机体、旧衬线、等宽或克制小号无衬线，让文字压边、嵌入色块或参与视觉簇关系，不能成为广告标题或远处无关装饰。";
+  }
+  return `用户补充要求：${requested}\n若其中给出明确文案则逐字使用；若只是情绪或主题要求，则据此创作一句中文2至8字或英文2至5词的极短私人注记。文字使用打字机体、旧衬线、等宽或克制小号无衬线，并以压边、嵌入色块、沿裁片边缘或作为粗糙字形对象的方式参与视觉事件。位置偏好“${textPosition || "AI 自动"}”必须服从所选原版配方，不得形成商业标题或与主事件无关的第二重心。`;
+}
+
+function minimalZineCompilerContract(enlarged: boolean, textRule: string) {
+  const geometry = enlarged
+    ? "自定义放大版：强制3:5竖版，唯一视觉簇位于左下区域，整体外接框占全画布22%至25%；低于20%或高于27%均不合格。上方和右侧保持主要开放纸面。"
+    : "GitHub 原版：默认3:5竖版，根据当前照片从 center-fragment、lower-left-float、upper-right-block、dual-panel、irregular-cutout、type-led、dot-orbit、single-specimen、diagonal-notes、edge-counterweight 中选择一个布局族；70%至90%为开放纸面，唯一视觉簇占8%至25%，不得固定套用左下或任何网页案例。";
+  return `格式：{"photoAnalysis":"80至180字，明确照片角色、High或Medium保留等级、可见不变量、情绪与一个可图像化隐喻","recipe":"严格使用八段斜杠记录：[布局族 / 视觉隐喻 / 焦点载体 / 排版模式或无字替代关系 / 唯一强调色及可见载体 / 纹理模式 / 零至三个装饰元素 / 情绪]","finalPrompt":"严格按四段编写的完整极简Zine生图提示词，500至900字"}。严格执行 GitHub 原版 Minimal Zine Poster v0.3.1。${geometry}
+第一段必须写比例、满版纸色、纸纤维/细颗粒/尘点/扫描噪声/轻微老化中的具体表面组合、无边框无样机、开放纸面比例，以及视觉簇的准确位置与占比。
+第二段把输入照片定义为 edit target。普通花草和景物使用 Medium 保留：只锁定主要类别、决定性轮廓和标志色，明确允许明显裁切、缩放、局部去色、印刷化及重新组织；人物、宠物、角色、艺术品和产品使用 High 保留。先提炼一个解释当前内容的可图像化隐喻，再从 faded photo、clean rectangular photo crop、torn-paper clipping、flat silhouette、opaque printed color block、old printed illustration、object specimen、translucent geometric overlay、abstract texture window、fragmented type 中选择一个具体焦点载体。禁止只把整张照片或完整主体缩小贴在纸上。
+第三段执行文字规则：${textRule} 选定一种明确排版模式；无字时必须写出替代排版轴的非文字关系。只用一种具体高纯强调色，并写明它由主体局部、裁片、色块或粗糙字形中的哪一种承载；彩色面积占全画布0.8%至2.5%或视觉簇15%至35%。同时选择一种主纹理和零至三个克制装饰元素，让焦点、文字或替代结构属于同一个印刷世界。
+第四段写平视扫描、哑光吸墨、漫射光、低至中对比及具体情绪；禁止满版场景、商业标题、广告、Logo、CTA、光滑样机、电影光、硬阴影、景深、3D、霓虹、卡通、时尚大片、密集手账、多对象与多色模板。recipe 与 finalPrompt 必须逐项一致，缺少任一配方轴即为不完整方案。`;
+}
+
+function minimalZineGenerationContract(enlarged: boolean, textRule: string) {
+  const modeRule = enlarged
+    ? "自定义放大版：强制3:5竖版，唯一视觉簇位于左下区域并占全画布22%至25%，上方和右侧保留主要纸面。所有内容直接印在同一纸面，不得有投影、翘角、厚度、抬起纸片、层叠纸卡或实体手工样机深度。"
+    : "GitHub 原版：默认3:5竖版，按方案选定的布局族执行，70%至90%为开放纸面，唯一视觉簇占8%至25%，不得固定套用左下构图。所有内容直接印在同一纸面，不得有投影、翘角、厚度、抬起纸片、层叠纸卡或实体手工样机深度。";
+  return `\n输入图是用户唯一的 edit target，不存在第二张风格参考图。${modeRule} 必须把方案中的八段配方逐项变成可见像素：布局族、视觉隐喻、具体焦点载体、排版或无字替代关系、唯一强调色及载体、纹理、装饰和情绪缺一不可。普通花草和景物采用 Medium 保留，只保留主类别、决定性轮廓和标志色，允许强裁切、缩放、局部去色、网点化、复印柔化、重新组织和与色块叠合；不要保留完整原画幅，也不要把完整主体抠成孤立贴纸。人物、宠物、角色、艺术品和产品才采用 High 保留。${textRule} 所有照片、文字与图形必须进入同一平面印刷世界。只用一种缩略图可见的高纯强调色，约占全画布0.8%至2.5%或视觉簇15%至35%。禁止完整照片缩小贴纸、只有抠图没有关系、满版场景、商业广告、Logo、CTA、样机、硬阴影、3D、霓虹、卡通、密集手账或多色模板。`;
 }
 
 const defaultModelChain = [
@@ -276,11 +313,52 @@ function relationshipDomainFallback(subjectBox: { x: number; y: number; width: n
   };
 }
 
-function parseSkillPlan(raw: string, adapterId: string): SkillPlan {
+function firstJsonObject(raw: string) {
   const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  const parsed = JSON.parse(cleaned) as Partial<SkillPlan>;
+  try { return JSON.parse(cleaned) as Record<string, unknown>; } catch { /* extract one complete object below */ }
+  const start = cleaned.indexOf("{");
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index >= 0 && index < cleaned.length; index++) {
+    const character = cleaned[index];
+    if (quoted) {
+      if (escaped) escaped = false; else if (character === "\\") escaped = true; else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "{") depth++;
+    else if (character === "}" && --depth === 0) return JSON.parse(cleaned.slice(start, index + 1)) as Record<string, unknown>;
+  }
+  throw new Error("Skill 没有返回可读取的 JSON 方案。");
+}
+
+function parseSkillPlan(raw: string, adapterId: string): SkillPlan {
+  const parsed = firstJsonObject(raw) as Partial<SkillPlan>;
   if (!parsed.photoAnalysis || !parsed.recipe || !parsed.finalPrompt) throw new Error("Skill 没有返回完整方案。");
   const plan: SkillPlan = { photoAnalysis: parsed.photoAnalysis, recipe: parsed.recipe, finalPrompt: parsed.finalPrompt };
+  if (adapterId === "minimal-zine") {
+    const recipeAxes = plan.recipe.split(/[/／]/).map((part) => part.trim()).filter(Boolean);
+    const promptParagraphs = plan.finalPrompt.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+    const promptLines = plan.finalPrompt.split(/\n+/).map((part) => part.trim()).filter(Boolean);
+    const designRecord = `${plan.recipe}\n${plan.finalPrompt}`;
+    const hasFourSemanticSections = [
+      /3:5|纸色|纸纤维|开放纸面|负空间/,
+      /edit target|照片|裁片|剪贴|标本|载体/,
+      /排版|文字|短注记|无字|强调色|色块/,
+      /扫描|漫射光|对比|情绪|禁止|避免/,
+    ].every((pattern) => pattern.test(plan.finalPrompt));
+    if (recipeAxes.length < 8) throw new Error("极简 Zine 方案没有完成八段变化配方。");
+    if (promptParagraphs.length < 4 && promptLines.length < 4 && !hasFourSemanticSections) {
+      throw new Error("极简 Zine 方案没有完成原版四段语义结构。");
+    }
+    if (!/照片|裁片|剪裁|裁切|撕纸|剪贴|标本|剪影|插图|色块|几何|纹理窗|字体|字形|片段|碎片|photo|crop|clipping|specimen|silhouette|illustration|ink block|geometric|texture window|fragmented type/i.test(designRecord)) {
+      throw new Error("极简 Zine 方案没有指定可见的焦点载体。");
+    }
+    if (!/半调|网点|复印|印刷|油墨|risograph|凸版|扫描线|错版|纸边|颗粒|halftone|xerox|print|ink|letterpress|misregistration/i.test(designRecord)) {
+      throw new Error("极简 Zine 方案没有指定印刷复现方式。");
+    }
+  }
   if (adapterId === "portrait-relight") {
     const relight = parsed.relight as Partial<NonNullable<SkillPlan["relight"]>> | undefined;
     if (!relight) throw new Error("没有定位到需要补光的人物区域。");
@@ -514,18 +592,21 @@ function scenePaperCollageFallbackPlan(body: GenerateRequest, instruction: strin
 async function compileSkillPlan(apiKey: string, body: GenerateRequest, instruction: string, adapter: typeof skillAdapters[string]) {
   const sourceDimensions = imageDimensions(body.analysisImage || body.image || "");
   const sourceOrientation = sourceDimensions && sourceDimensions.width > sourceDimensions.height ? "landscape" : "portrait";
-  const minimalRandom = body.minimalLayoutMode === "random";
-  const ratioRule = adapter.id === "minimal-zine" && !minimalRandom
-    ? "固定放大版强制输出3:5竖版纸张海报，不得改为原图比例、3:4、横版或方形。"
-    : adapter.id === "minimal-zine" && (body.ratio || "original") === "portrait"
-      ? "输出3:5竖版纸张海报。"
+  const minimalEnlarged = body.minimalLayoutMode === "enlarged";
+  const minimalOriginalVariant = adapter.id === "minimal-zine" && !minimalEnlarged && body.mode !== "refine"
+    ? minimalOriginalVariants[randomInt(minimalOriginalVariants.length)]
+    : "";
+  const ratioRule = adapter.id === "minimal-zine" && minimalEnlarged
+    ? "自定义放大版强制输出3:5竖版纸张海报，不得改为原图比例、3:4、横版或方形。"
+    : adapter.id === "minimal-zine" && (!body.ratio || body.ratio === "original" || body.ratio === "portrait")
+      ? "GitHub 原版默认输出3:5竖版纸张海报。"
     : adapter.id === "gathered-scenes" && (body.ratio || "original") === "original"
     ? sourceOrientation === "landscape"
       ? "保持源图横向阅读，输出5:3横版纸拼海报。"
       : "保持源图纵向阅读，输出3:5竖版纸拼海报。"
     : ratioPrompts[body.ratio || "original"];
   const textRule = adapter.id === "minimal-zine"
-    ? minimalZineTextRule(instruction, body.textPosition)
+    ? minimalZineTextRule(body.minimalLayoutMode || "original", instruction, body.textPosition)
     : adapter.id === "light-ink-wash"
     ? lightInkWashTextRule(instruction, body.textPosition, body.mode)
     : instruction
@@ -535,14 +616,16 @@ async function compileSkillPlan(apiKey: string, body: GenerateRequest, instructi
       : "用户没有补充要求。不得自行添加标题、日期、编号、Logo、水印或虚构信息。";
   const taskRule = body.mode === "refine"
     ? "这是继续修改：输入图是上一版成品。只编译本次修改需要的精确编辑指令，并锁定其他已存在的内容、风格、人物和构图。"
-    : adapter.id === "minimal-zine" && !minimalRandom
-      ? "这是首次生成：使用固定放大版的构图几何，但主体、裁片形状、强调色和隐喻必须来自当前上传照片。网页案例只用于锁定左下位置、22%至25%视觉簇和留白关系，不得复制案例主体或文案。"
+    : adapter.id === "minimal-zine" && minimalEnlarged
+      ? "这是首次生成：执行自定义放大版几何，但仍须从当前照片选择一个视觉隐喻、一个具体焦点载体、一种高纯强调色及载体、一种印刷纹理与零至三个克制装饰元素；无字不等于无设计。"
+    : adapter.id === "minimal-zine"
+      ? `这是首次生成：完整执行 GitHub 原版变化系统。先从当前照片内容中提炼一个视觉隐喻，再让本次抽取的变化轴“${minimalOriginalVariant}”服务于这个隐喻；不得擅自换回更熟悉的布局、焦点载体或排版。继续选择纹理模式、纸色、主强调色及其可见载体、装饰系统与情绪。不能套网页案例或上一版玫瑰构图。`
     : "这是首次生成：根据输入照片独立做出适合这张照片的构图选择，不要复刻网页案例图。";
   const isPortraitRelight = adapter.id === "portrait-relight";
   const outputFormat = isPortraitRelight
     ? `格式：{"photoAnalysis":"60至160字","recipe":"60至180字","finalPrompt":"说明像素级后期方案，不能要求重新生成照片","relight":{"faceBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"personBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"faceExposureEv":0.25至0.60,"subjectExposureEv":0.06至0.26,"highlightCompression":0至0.35,"warmth":-0.12至0.12,"overlayText":"仅在用户明确要求时逐字填写，否则空字符串"}}。Box 必须是输入图中的准确归一化边界框，x/y 是左上角。只定位主要人物；faceBox 包住脸和少量头发，personBox 包住完整可见身体。曝光值必须克制，背景已很亮时不得通过提高全局曝光解决。`
     : adapter.id === "minimal-zine"
-      ? `格式：{"photoAnalysis":"80至180字，明确照片角色、High或Medium保留等级、可见不变量、主题情绪与一个可图像化隐喻","recipe":"100至240字，明确构图模式 / 隐喻 / 焦点载体 / 文字状态 / 唯一强调色及载体 / 纹理 / 情绪","finalPrompt":"严格按四段编写的完整极简Zine生图提示词，500至900字"}。严格执行 GitHub 原版 Minimal Zine Poster v0.3.1。${minimalRandom ? "用户主动选择随机构图：根据当前照片从原版变化系统选择一种布局；保持70%至90%开放纸面，唯一视觉簇可占全画布8%至25%，不得机械复制网页案例。" : "用户选择默认固定放大版：强制3:5竖版，唯一视觉簇固定在左下区域，整体外接框必须占全画布22%至25%；低于20%不合格，高于27%不合格。照片主体必须成为视觉簇主角，上方和右侧保留主要开放纸面；禁止右上小图、中心小图、远端文字和第二视觉重心。网页案例仅用于锁定该几何关系，不得复制案例玫瑰或文案。"} 第二段明确输入照片是 edit target 或 supporting insert，选择 High 或 Medium 保留，并逐项写出必须保持可辨的主体身份、数量、比例、轮廓、标志性颜色和关键细节；只允许裁切、缩放、纸张表面与周围排版改变。只选择一个来自当前照片的视觉隐喻，并用照片裁片、撕纸剪贴、标本式对象、印刷插图、色块或字体对象中的一种具体载体呈现，不能扩展成完整场景。第三段严格遵守本次文字规则：${textRule} 只用一种具体高纯强调色，由主体、剪贴、色块或粗糙字形承载，占全画布约0.8%至2.5%或视觉簇15%至35%，缩略图仍清楚；加入半调、复印柔化、risograph颗粒、凸版渗墨、纸边、扫描线或轻微错版，使照片与允许出现的文字属于同一印刷世界。第四段写平视扫描、漫射光、低至中对比和安静诗性情绪，并禁止满版场景、商业标题、广告、Logo、CTA、光滑样机、电影光、硬阴影、景深、3D、霓虹、卡通、时尚大片、密集手账、多对象和多色模板。`
+      ? minimalZineCompilerContract(minimalEnlarged, textRule)
     : adapter.id === "abstract-editorial"
       ? `格式：{"photoAnalysis":"80至180字，说明照片主体、主轴、层级、负空间、最适合的分界方向及三至六个可提炼关系","recipe":"80至220字，明确真实摄影区、抽象区、分界线和色彩角色","finalPrompt":"生成真实摄影与抽象结构直接相接的编辑成品，500至1000字","photoWindow":{"x":0至1,"y":0至1,"width":0至1,"height":0至1}}。photoWindow 是最终必须使用用户原图像素覆盖的连续矩形区域，必须包含完整核心主体且占画面约42%至68%，不能机械对半。根据照片主轴选择横向或纵向分界：竖向建筑、站立人物或上下层级明显的画面，优先用横向分界，让摄影区覆盖上部或主体所在部分，抽象区承接下部的台阶、地面或节奏；横向运动、左右关系明显时才使用纵向分界。真实摄影区与抽象区必须共用同一坐标和透视关系，直接相接且没有边框、阴影、相框、胶带或纸张样机。抽象区不是主体的第二张插画，不得描摹、复制或重画人物、建筑、花朵或物件；只能从原图提取三至六个决定性关系，转成一种主要形态家族，例如平整矩形与短线、弧线与间隔、台阶折线与重复柱距，最多两个辅助形态家族。抽象区必须有明确的视觉事件和层级，不能只是一整块空色、渐变天空、空白广告牌或几条无意义水平线。色彩只能从原图提取，使用一块主色、一个结构色和最多一个小面积强调色；平整无纹理，无霓虹、发光、镜像、重影、写实复制、渐变和装饰图标。输出无文字，除非用户明确要求。`
     : adapter.id === "gathered-scenes"
@@ -576,7 +659,7 @@ Skill：${adapter.name}
       ],
       response_format: { type: "json_object" },
       reasoning_effort: "minimal",
-      temperature: adapter.id === "gathered-scenes" ? 0.12 : 0.2,
+      temperature: adapter.id === "gathered-scenes" ? 0.12 : adapter.id === "minimal-zine" ? 0.48 : 0.2,
       max_tokens: adapter.id === "gathered-scenes" ? 4200 : 1800,
     }),
     signal: AbortSignal.timeout(90_000),
@@ -771,14 +854,14 @@ async function previewStyleReference(fileName: string) {
 async function reviewGeneratedImage(apiKey: string, body: GenerateRequest, outputImage: string, adapter: typeof skillAdapters[string], timeoutMs: number) {
   const policy = qualityPolicies[adapter.id];
   if (!policy) return undefined;
-  const minimalRandom = body.minimalLayoutMode === "random";
+  const minimalEnlarged = body.minimalLayoutMode === "enlarged";
   const gatheredScoreCaps = adapter.id === "gathered-scenes"
     ? "拾景纸刊强制评分上限：主体身份、脸、表情、姿态、手、解剖、衣服、决定性物体、自然颜色、曝光、透视、归一化位置或大小明显改变，总分不得超过55且 criticalFailure=true；摄影域内部任何明显网点、素描、干刷、拓印、透明颜料或局部重绘，总分不得超过60且 criticalFailure=true；摄影域超过整页60%，总分不得超过68；主体或必要接触/支撑物被裁掉，总分不得超过62；开口是固定窗口、矩形、圆角矩形、对称徽章、贴纸白边或紧贴主体的蒙版，总分不得超过68；外部背景无法对应原图P域之外的真实景物，总分不得超过65；P外出现未分配画板或独立空白内容区，总分不得超过62；外部背景近乎空白、只有毛刺或零星短线，总分不得超过68；纸裁两侧可对应背景的方位、透视、方向、尺度或层级明显断裂，或整体像照片贴到另一张背景上，总分不得超过65；新增人物物体植物建筑、完整第二场景、Logo或水印，总分不得超过55且 criticalFailure=true；出现厚阴影、翘角、层叠卡片或样机深度，总分不得超过65。"
     : "";
   const styleReviewContract = adapter.id === "minimal-zine"
-    ? minimalRandom
-      ? "用户主动选择随机构图。允许按 GitHub 原版变化系统选择布局，但仍必须保持70%至90%开放纸面、一个占8%至25%的视觉簇、一个明确视觉事件和一种高纯强调色。没有明确文案时必须完全无字；有文案时文字须与视觉簇形成一个整体。"
-      : "用户选择固定放大版。强制核对：画布是3:5竖版；唯一视觉簇的整体外接框位于左下区域并占全画布22%至25%，低于20%时总分不得超过68，高于27%时总分不得超过68；上方和右侧保留主要开放纸面；右上小图、中心小图或独立远端文字均不合格。用户没有明确文案时，出现任何标题、诗句、日期、编号或字符，总分不得超过60；用户提供文案时，文字必须紧贴、轻微压住或嵌入照片簇边缘，最近间距不得超过画布短边3%，远处文字形成第二重心时总分不得超过65。"
+    ? minimalEnlarged
+      ? "用户选择自定义放大版。强制核对：3:5竖版，唯一视觉簇位于左下区域并占全画布22%至25%；低于20%或高于27%时总分不得超过68。默认无字；即使无字，也必须出现照片裁片与单色色块、双裁片、标本与中断线或局部照片与几何片中的一种紧密关系。若只是完整主体或完整原图抠图贴在纸上，没有第二个关系载体，总分不得超过60。"
+      : "用户选择 GitHub 原版。强制核对：默认3:5，70%至90%开放纸面，一个占8%至25%的视觉事件；必须清楚表现一种布局族、一个来自照片内容的视觉隐喻、一种具体焦点载体、一种参与视觉事件的排版模式、一种缩略图可见的高纯强调色及载体、统一印刷纹理和安静情绪。若只是把完整原照片缩小、抠图或贴在纸上，缺少隐喻关系、具体载体或编辑结构，总分不得超过58；照片、文字与图形明显不属于同一印刷世界时总分不得超过62；没有用户文案却缺少原版短注记时总分不得超过65；出现任何可见投影、悬浮纸片、翘边、厚纸层或实体拼贴样机深度时总分不得超过58且criticalFailure=true；强调色、装饰或文字若游离于主视觉簇之外形成第二视觉事件，总分不得超过62。"
     : adapter.id === "gathered-scenes"
     ? `对于拾景纸刊按九项验收：1) subjectGeometry：主体和必要接触/支撑物保持原图身份、姿态、透视、归一化位置与大小；2) photoDomainAnchor：摄影域继承原图主体关系域的全画布坐标，从主体原位置向必要支撑物与少量关系环境扩张，不得把摄影域或主体移向左上、中央或固定象限，也不要求主体位于摄影域中心；3) photoDomainCoverage：只有一处摄影域，包含主体关系域但排除大部分背景，面积通常28%至58%且绝不超过60%；4) photoDomainPurity：摄影域从撕边到撕边只能是自然原图，内部没有网点、素描、干刷、拓印、透明颜料或局部绘画；5) relationshipBoundary：撕边由主体—支撑物—背景关系及原图直接可见的空间分界形成，不是固定窗口或紧边抠图；6) fullPageBackground：P外全部属于I背景域，没有未分配画板或独立空白内容区，低信息处仍由源背景色彩、明暗、纹理或方向决定；7) boundaryContinuity：至少两处背景结构或一处宽阔背景表面在撕边两侧保持方位、透视、方向、尺度和层级对应，不能像把照片贴到另一张背景上；8) sourceTraceability：外部每个可辨场景元素均能指回原图且没有完整第二场景或新增场景元素；9) materialAndArtifact：合规材料不能被误判为场景对象，同时禁止Logo、水印、界面、样机与立体纸层。${adapter.id === "gathered-scenes" ? `${scenePaperCollageFullPageTopology}\n${scenePaperCollageLayerOntology}` : ""}${gatheredScoreCaps}拾景纸刊中，暖白纸基底、纸纤维、撕边、印刷质感与扫描颗粒是合规材料，不得因为原图没有这些材料而判为额外场景元素；但材料不能形成第三块内容域。只有确认原图不存在的场景语义元素才属于新增对象。`
     : "仅按当前选中工作流的保留规则与文字许可验收。允许整图绘画化的工作流，不要求存在原图摄影域；风格规定的纸底、笔触和留白属于合规材料。";
@@ -792,7 +875,7 @@ async function reviewGeneratedImage(apiKey: string, body: GenerateRequest, outpu
         { role: "user", content: [
           { type: "image_url", image_url: { url: body.analysisImage || body.image } },
           { type: "image_url", image_url: { url: outputImage } },
-          { type: "text", text: `工作流：${adapter.name}\n工作流要求：${adapter.workflow}\n重点验收：${adapter.review}\n保留规则：${policy.preservation}\n用户补充要求：${adapter.id === "light-ink-wash" ? lightInkWashTextRule(body.instruction, body.textPosition, body.mode) : body.instruction?.trim() || (adapter.id === "gathered-scenes" ? "无；默认优先无字，必要时只允许一行一至四个简单场景词。" : adapter.id === "minimal-zine" ? "无；固定放大版与随机构图均必须完全无字。" : "无；不得自行添加文字。")}` },
+          { type: "text", text: `工作流：${adapter.name}\n工作流要求：${adapter.workflow}\n重点验收：${adapter.review}\n保留规则：${policy.preservation}\n用户补充要求：${adapter.id === "minimal-zine" ? minimalZineTextRule(body.minimalLayoutMode || "original", body.instruction, body.textPosition) : adapter.id === "light-ink-wash" ? lightInkWashTextRule(body.instruction, body.textPosition, body.mode) : body.instruction?.trim() || (adapter.id === "gathered-scenes" ? "无；默认优先无字，必要时只允许一行一至四个简单场景词。" : "无；不得自行添加文字。")}` },
         ] },
       ],
       response_format: { type: "json_object" },
@@ -957,9 +1040,10 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
     ? `\n最高优先级任务：严格执行同一照片P摄影主体域／I绘画背景域的全幅二域构图，并用M拼贴材料层承载。${scenePaperCollageContract}\n只把用户原照片作为编辑目标，不把它当作可自由重画的参考；不要输入案例图或第二张风格图。P不得超过整页60%，内部只能是原图自然摄影；I占据P之外100%的页面，只从同一原图背景转译，低信息处也必须由源背景的颜色、明暗、纹理或方向决定；M是规定的纸张与印刷材料，不是需要从原图匹配的场景对象，也不能成为第三块空白内容域。若上一版只有某一项失败，只修正该失败项，不重新设计已成功的主体、支撑关系、撕边或纸面印痕。`
     : "";
   const minimalGuardrail = adapter.id === "minimal-zine"
-    ? body.minimalLayoutMode === "random"
-      ? `\n输入图1是用户原照片，必须按方案中的 edit target 或 supporting insert 角色及 High/Medium 保留等级处理。输入图2只是 GitHub 原版风格参考；不要复制其中的玫瑰、文案或具体构图。用户主动选择随机构图：保持70%至90%开放纸面，只能有一个占8%至25%的主要视觉事件，并从原版变化系统中选择适合当前照片的布局。主体身份、数量、比例、轮廓、标志性颜色与关键细节保持可辨。${minimalZineTextRule(instruction, body.textPosition)}只使用一种缩略图可见的高纯强调色，所有元素保持同一平面印刷扫描世界。`
-      : `\n输入图1是用户原照片，必须按方案中的 edit target 或 supporting insert 角色及 High/Medium 保留等级处理。输入图2是固定放大版的几何参考：只锁定3:5画布、左下视觉簇、22%至25%整体占比，以及照片与可选文字组成一个紧密整体；不得复制参考图中的玫瑰身份或具体文案。视觉簇整体外接框必须位于左下区域并占全画布22%至25%，照片主体是视觉簇主角，上方和右侧保留主要开放纸面。禁止右上小图、中心小图、低于20%的过小照片、超过27%的过大照片、远端孤立文字和第二视觉重心。主体身份、数量、比例、轮廓、标志性颜色与关键细节保持可辨。${minimalZineTextRule(instruction, body.textPosition)}只使用一种缩略图可见的高纯强调色，所有元素保持同一平面印刷扫描世界。`
+    ? minimalZineGenerationContract(
+        body.minimalLayoutMode === "enlarged",
+        minimalZineTextRule(body.minimalLayoutMode || "original", instruction, body.textPosition),
+      )
     : "";
   const abstractGuardrail = adapter.id === "abstract-editorial"
     ? "\n输入图1是用户原照片，是主体、构图和颜色的唯一事实来源。输入图2是我们自制的结构关系样张，只借鉴‘一块真实摄影区与一块抽象关系区直接相接’的编辑逻辑，严禁复制样张中的建筑、屋檐、台阶、树木、固定上下版式或具体颜色。网页稍后会把 photoWindow 区域覆盖为用户原图像素，所以该区域必须保持与输入图1完全同构图、同位置、同尺度；你重点生成其余抽象区。抽象区必须把当前照片的三至六个关系转成清楚的平面结构，例如层级、轴线、间隔、方向、尺度或负空间，而不是复制一个简化版主体。严禁左右五五分、上下五五分、空蓝面板、渐变色块、几条孤立水平线、第二座建筑、第二个人物、矢量描摹、照片镜像、边框和样机。分界线必须顺着当前照片中的地平线、建筑层级、台阶起点、人物视线或运动方向，并让抽象形态在接缝处承接真实摄影中的结构。"
@@ -1004,9 +1088,7 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
       break;
     }
     try {
-      const styleReferences = adapter.id === "minimal-zine"
-          ? [await previewStyleReference("minimal-zine.png")].filter((value): value is string => Boolean(value))
-        : adapter.id === "abstract-editorial"
+      const styleReferences = adapter.id === "abstract-editorial"
           ? [await previewStyleReference("abstract-editorial.jpg")].filter((value): value is string => Boolean(value))
           : [];
       const imageInputs = [body.image, ...styleReferences];
