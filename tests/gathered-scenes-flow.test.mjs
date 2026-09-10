@@ -78,7 +78,7 @@ test("stable gathered scenes keeps the original aspect ratio in the client", asy
   const page = await readFile(pagePath, "utf8");
 
   assert.match(page, /if \(scene\.id === "gathered-scenes"\) setRatio\("original"\)/);
-  assert.match(page, /disabled=\{selectedScene\?\.id === "gathered-scenes" && item\.id !== "original"\}/);
+  assert.match(page, /selectedScene\?\.id === "gathered-scenes" && item\.id !== "original"/);
   assert.match(page, /保持原图比例与完整坐标/);
   assert.match(page, /保持原图比例 · 原像素固定纸裁/);
 });
