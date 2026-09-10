@@ -70,7 +70,7 @@ type GenerationResponse = {
 };
 
 const scenes: Scene[] = [
-  { id: "minimal-zine", name: "极简 Zine", eyebrow: "完整摄影 · 非具象印刷场", description: "保留一块完整、自然的照片材料，让独立抽象印刷、裸纸留白和一种结构色共同完成版面。", fidelity: "完整保留摄影锚点", preview: "/previews/minimal-zine.jpeg", credit: "独立功能实现 · 案例使用你的建筑照片", previewNote: "照片始终保持为一块未滤镜化的真实材料；插画只在周围纸面独立创作，不再把天空、植物或建筑局部压成色块。" },
+  { id: "minimal-zine", name: "极简 Zine", eyebrow: "大片留白 · 微型编辑", description: "在暖白纸面上只留一个小型照片事件，用短字、印刷颗粒和一种高纯颜色制造安静张力。", fidelity: "保留主体，可裁切缩放", preview: "/previews/minimal-zine.png", credit: "GitHub 原版 Skill · gc-minimal-zine-poster v0.3.1", creditUrl: "https://github.com/LiamGvchi/gc-minimal-zine-poster", previewNote: "70%–90% 为开放纸面；视觉簇占 8%–25%。当前玫瑰案例使用放大后的约 24% 版本。" },
   { id: "abstract-editorial", name: "结构记忆编辑", eyebrow: "真照 + 抽象记忆", description: "忠实保留原照片，再从画面关系中提炼一块克制的抽象视觉面板。", fidelity: "高度保留原照", preview: "/previews/abstract-editorial.jpg", credit: "独立功能实现 · 案例使用你的建筑照片" },
   { id: "gathered-scenes", name: "拾景纸刊", eyebrow: "主体真照 · 背景绘画", description: "根据主体、支撑物和背景关系决定手撕边界：内部保留原图摄影，外部把同一场景背景绘画化。", fidelity: "主体位置与自然摄影锁定", preview: "/previews/gathered-scenes.jpg", credit: "个人 Skill · make-scene-paper-collage", previewNote: "摄影域自适应且不超过整页 60%；内部只能是原图自然摄影，外围绘画元素全部来自同一照片背景。" },
   { id: "scene-distillation", name: "场景抽象", eyebrow: "提取关系 · 重新创作", description: "提取照片中的主体关系、方向和情绪，重新组织成一张独立纸面插画。", fidelity: "允许大幅创作", preview: "/previews/scene-distillation.jpg", credit: "独立功能实现 · 不使用第三方 Skill 内容" },
@@ -146,6 +146,7 @@ export default function Home() {
     setSelectedScene(scene);
     setPreviewScene(scene);
     if (scene.id === "gathered-scenes") setRatio("original");
+    if (scene.id === "minimal-zine") setRatio("portrait");
     setError("");
     setQualityCorrection("");
     setStatus(source ? `已选择「${scene.name}」。可以补充文字或直接生成。` : `已选择「${scene.name}」。上传照片后即可生成。`);

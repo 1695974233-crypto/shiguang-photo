@@ -6,20 +6,22 @@ const pagePath = new URL("../app/page.tsx", import.meta.url);
 const routePath = new URL("../app/api/generate/route.ts", import.meta.url);
 const runtimePath = new URL("../app/skill-runtime.ts", import.meta.url);
 
-test("minimal zine uses intact photo, authored print, paper, and structural color", async () => {
+test("minimal zine follows the GitHub v0.3.1 sparse editorial contract", async () => {
   const page = await readFile(pagePath, "utf8");
   const route = await readFile(routePath, "utf8");
   const runtime = await readFile(runtimePath, "utf8");
 
-  assert.match(page, /完整摄影 · 非具象印刷场/);
-  assert.match(page, /照片始终保持为一块未滤镜化的真实材料/);
-  assert.match(runtime, /P 是一块占画面约25%至42%的连续摄影材料/);
-  assert.match(runtime, /每个主要插画母题至少执行两次结构变换/);
-  assert.match(runtime, /同时介入中性插画以及撕缝或画布边缘/);
-  assert.match(route, /Keep the retained photograph as one intact, natural, unfiltered printed fragment/);
-  assert.match(route, /anchored-bleed-internal-seam/);
-  assert.match(route, /照片内部海报化、阈值化、矢量化、选择性改色、语义分割/);
+  assert.match(page, /大片留白 · 微型编辑/);
+  assert.match(page, /70%–90% 为开放纸面/);
+  assert.match(page, /minimal-zine\.png/);
+  assert.match(runtime, /GitHub 原版 Minimal Zine Poster v0\.3\.1/);
+  assert.match(runtime, /70%至90%应读作开放纸面/);
+  assert.match(runtime, /约占8%至25%的主要视觉事件/);
+  assert.match(runtime, /https:\/\/github\.com\/LiamGvchi\/gc-minimal-zine-poster/);
+  assert.match(route, /只学习暖白纸、大片留白、小视觉事件、短字、印刷颗粒和单一高纯强调色/);
+  assert.match(route, /不要复制网页案例的玫瑰、RED STAYS、构图或颜色/);
+  assert.match(route, /previewStyleReference\("minimal-zine\.png"\)/);
   assert.match(route, /adapter\.id === "minimal-zine" \|\| \(adapter\.id === "gathered-scenes" && !usesLocalComposite\)/);
-  assert.doesNotMatch(runtime, /72%至88%/);
-  assert.doesNotMatch(route, /MIT 许可项目 README/);
+  assert.doesNotMatch(runtime, /P 是一块占画面约25%至42%的连续摄影材料/);
+  assert.doesNotMatch(route, /anchored-bleed-internal-seam/);
 });

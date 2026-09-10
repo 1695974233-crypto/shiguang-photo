@@ -226,7 +226,7 @@ type QualityReview = {
 };
 
 const qualityPolicies: Record<string, { threshold: number; preservation: string }> = {
-  "minimal-zine": { threshold: 82, preservation: "必须形成可明确区分的 P/I/N 三种材料：P 是占画面约25%至42%的连续、自然、未滤镜摄影；I 只在照片外或其下方独立创作，主要母题至少经过两次结构变换；N 是至少约30%的有效裸纸。禁止照片内部海报化、语义分割、阈值化、选择性改色、灰色蒙版和大面积透明覆盖。只能有一种高纯结构色，且必须同时介入中性插画以及撕缝或画布边缘。" },
+  "minimal-zine": { threshold: 82, preservation: "必须符合 GitHub 原版 v0.3.1：默认3:5竖版暖白纸张，70%至90%是开放纸面，只有一个占8%至25%的主要视觉事件。输入照片必须被明确当作 edit target 或 supporting insert，并以合适的 High/Medium 等级保留主体身份、数量、比例、轮廓、标志性颜色与关键细节。只使用一种缩略图可见的高纯强调色，约占全画布0.8%至2.5%或视觉簇15%至35%；短字与照片必须具有统一的纸纤维、半调、复印、risograph、凸版或扫描印刷质感。禁止满版场景、商业标题、广告、Logo、CTA、样机深度、硬阴影、3D、霓虹、卡通、密集拼贴和多色模板。" },
   "abstract-editorial": { threshold: 72, preservation: "必须有一块原照片真实区域，主体和建筑不得在摄影区被重画；抽象区必须来自原图关系。" },
   "gathered-scenes": { threshold: 90, preservation: "必须把同一原图的场景内容分成互斥且合起来铺满成图的P摄影主体域和I绘画背景域，并用M材料层承载成二维纸拼。P只有一处自适应非对称手撕开口，包含主体、必要接触/支撑物和最少关系环境，通常约28%至58%，硬上限60%；P的整体位置必须继承原图主体关系域归一化坐标，只能从主体原位置向关系环境扩张，不得移向左上、中央或固定象限，也不要求主体位于P中心。P内部从撕边到撕边均为自然原图摄影，不得出现网点、素描、干刷、拓印、透明颜料或局部重绘。主体的身份、姿态、决定性物体、颜色、曝光、透视、归一化位置和大小保持不变。I必须占据P之外的全部页面，由同一原图剩余背景绘画化；至少两处结构或一处宽阔背景表面在撕边两侧保持方位、透视、方向、尺度和层级连续。低信息区可以接近纸色，但仍须表达源背景的颜色、明暗、纹理或方向；任何未分配画板、独立空白区、照片贴到另一张背景上的分层感、背景只有零星短线或近乎空白均失败。SOURCE_BACKGROUND_WHITELIST只约束场景语义元素；暖白纸基底、纸纤维、撕边、印刷和扫描颗粒属于合规M材料层，不需要在原照片中寻找来源，但M不能形成第三块内容域。撕边由主体—支撑物—背景关系和源图天然分界决定，不能是固定窗口、主体紧边抠图、矩形、贴纸白边或数码蒙版。不得后贴主体、生成完整第二场景、添加无来源人物物体植物建筑、Logo、水印或3D纸张深度。" },
   "scene-distillation": { threshold: 62, preservation: "允许完全重画，但必须保留原图最重要的主体关系、动作方向和场景辨识线索。" },
@@ -507,7 +507,9 @@ function scenePaperCollageFallbackPlan(body: GenerateRequest, instruction: strin
 async function compileSkillPlan(apiKey: string, body: GenerateRequest, instruction: string, adapter: typeof skillAdapters[string]) {
   const sourceDimensions = imageDimensions(body.analysisImage || body.image || "");
   const sourceOrientation = sourceDimensions && sourceDimensions.width > sourceDimensions.height ? "landscape" : "portrait";
-  const ratioRule = adapter.id === "gathered-scenes" && (body.ratio || "original") === "original"
+  const ratioRule = adapter.id === "minimal-zine" && (body.ratio || "original") === "portrait"
+    ? "输出3:5竖版纸张海报，这是 GitHub 原版默认比例。"
+    : adapter.id === "gathered-scenes" && (body.ratio || "original") === "original"
     ? sourceOrientation === "landscape"
       ? "保持源图横向阅读，输出5:3横版纸拼海报。"
       : "保持源图纵向阅读，输出3:5竖版纸拼海报。"
@@ -526,7 +528,7 @@ async function compileSkillPlan(apiKey: string, body: GenerateRequest, instructi
   const outputFormat = isPortraitRelight
     ? `格式：{"photoAnalysis":"60至160字","recipe":"60至180字","finalPrompt":"说明像素级后期方案，不能要求重新生成照片","relight":{"faceBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"personBox":{"x":0至1,"y":0至1,"width":0至1,"height":0至1},"faceExposureEv":0.25至0.60,"subjectExposureEv":0.06至0.26,"highlightCompression":0至0.35,"warmth":-0.12至0.12,"overlayText":"仅在用户明确要求时逐字填写，否则空字符串"}}。Box 必须是输入图中的准确归一化边界框，x/y 是左上角。只定位主要人物；faceBox 包住脸和少量头发，personBox 包住完整可见身体。曝光值必须克制，背景已很亮时不得通过提高全局曝光解决。`
     : adapter.id === "minimal-zine"
-      ? `格式：{"photoAnalysis":"80至180字，明确语义最小保留量、决定性空间关系、视觉重心、自然安静区、原图色彩和一至两个可变换母题","recipe":"100至240字，明确P/I/N材料占比、构图族、每个母题的两次结构变换、唯一印刷语法、唯一结构色及其交互","finalPrompt":"生成单张完整极简Zine纸刊，650至1200字"}。先锁定三种互斥材料：P 是一块占画面约25%至42%的连续摄影材料，保留自然色彩、连续色调、身份、透视、纹理和关键细节；I 是照片之外或其物理下方的新创作印刷场，影响约40%至65%但实际着墨约10%至28%；N 是至少约30%的暖白裸纸。finalPrompt 必须逐字包含：Keep the retained photograph as one intact, natural, unfiltered printed fragment. Draw all abstract forms separately on the surrounding paper; do not posterize, segment, recolor, trace, or partially convert the photograph. 根据当前照片从 anchored-bleed-internal-seam、one-piece-anchor-expansive-field、photo-island-distant-counterform、offset-relay 中选择一类，禁止默认四边浮动相片卡。每个主要插画母题必须明确写出至少两次结构变换，例如合并+正负形反转、尺度突变+断轮廓、旋转+转为间隔节奏；只放大对象或添加做旧纹理不合格。只能使用一种主要印刷语法、一块主形、一个辅助痕迹和最多一个纹理场。只能添加一种具体高纯结构色；主色形必须同时与一块中性插画相互遮断、穿越、反形或连接，并接触撕缝或画布边缘，不能成为孤立圆点、牌子、半圆、鸟、花或角落色块。用户未明确要求文字时禁止文字、数字、日期、编号、说明、Logo和水印。禁止照片内部海报化、阈值化、矢量化、选择性改色、语义分割、灰色蒙版、低透明覆盖、半照片半滤镜、整页重绘、写生贴纸、密集装饰和样机深度。`
+      ? `格式：{"photoAnalysis":"80至180字，明确照片角色、High或Medium保留等级、可见不变量、主题情绪与一个可图像化隐喻","recipe":"100至240字，按布局族 / 隐喻 / 焦点载体 / 字体模式 / 唯一强调色及载体 / 纹理 / 装饰 / 情绪记录本次选择","finalPrompt":"严格按四段编写的完整极简Zine生图提示词，500至900字"}。严格执行 GitHub 原版 Minimal Zine Poster v0.3.1。第一段写用户指定比例（默认3:5）、满版暖白纤维纸、无边框无样机、70%至90%开放纸面，以及一个占8%至25%的视觉簇的准确位置；用户要求放大时可接近20%至25%。第二段明确输入照片是 edit target 或 supporting insert，选择 High 或 Medium 保留，并逐项写出必须保持可辨的主体身份、数量、比例、轮廓、标志性颜色和关键细节；只允许裁切、缩放、纸张表面与周围排版改变。只选择一个来自当前照片的视觉隐喻，并用照片裁片、撕纸剪贴、标本式对象、印刷插图、色块或字体对象中的一种具体载体呈现，不能扩展成完整场景。第三段写一句简短文字或极少档案微字，使用打字机体、旧衬线、等宽或克制小号无衬线；若用户明确给字则逐字使用，明确不要文字则完全无字。只用一种具体高纯强调色，由主体、剪贴、色块或粗糙字形承载，占全画布约0.8%至2.5%或视觉簇15%至35%，缩略图仍清楚；加入半调、复印柔化、risograph颗粒、凸版渗墨、纸边、扫描线或轻微错版，使照片与文字属于同一印刷世界。第四段写平视扫描、漫射光、低至中对比和安静诗性情绪，并禁止满版场景、商业标题、广告、Logo、CTA、光滑样机、电影光、硬阴影、景深、3D、霓虹、卡通、时尚大片、密集手账、多对象和多色模板。不要复制网页案例的玫瑰、RED STAYS、构图或颜色；必须根据当前上传照片重新选择。`
     : adapter.id === "abstract-editorial"
       ? `格式：{"photoAnalysis":"80至180字，说明照片主体、主轴、层级、负空间、最适合的分界方向及三至六个可提炼关系","recipe":"80至220字，明确真实摄影区、抽象区、分界线和色彩角色","finalPrompt":"生成真实摄影与抽象结构直接相接的编辑成品，500至1000字","photoWindow":{"x":0至1,"y":0至1,"width":0至1,"height":0至1}}。photoWindow 是最终必须使用用户原图像素覆盖的连续矩形区域，必须包含完整核心主体且占画面约42%至68%，不能机械对半。根据照片主轴选择横向或纵向分界：竖向建筑、站立人物或上下层级明显的画面，优先用横向分界，让摄影区覆盖上部或主体所在部分，抽象区承接下部的台阶、地面或节奏；横向运动、左右关系明显时才使用纵向分界。真实摄影区与抽象区必须共用同一坐标和透视关系，直接相接且没有边框、阴影、相框、胶带或纸张样机。抽象区不是主体的第二张插画，不得描摹、复制或重画人物、建筑、花朵或物件；只能从原图提取三至六个决定性关系，转成一种主要形态家族，例如平整矩形与短线、弧线与间隔、台阶折线与重复柱距，最多两个辅助形态家族。抽象区必须有明确的视觉事件和层级，不能只是一整块空色、渐变天空、空白广告牌或几条无意义水平线。色彩只能从原图提取，使用一块主色、一个结构色和最多一个小面积强调色；平整无纹理，无霓虹、发光、镜像、重影、写实复制、渐变和装饰图标。输出无文字，除非用户明确要求。`
     : adapter.id === "gathered-scenes"
@@ -936,7 +938,7 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
     ? `\n最高优先级任务：严格执行同一照片P摄影主体域／I绘画背景域的全幅二域构图，并用M拼贴材料层承载。${scenePaperCollageContract}\n只把用户原照片作为编辑目标，不把它当作可自由重画的参考；不要输入案例图或第二张风格图。P不得超过整页60%，内部只能是原图自然摄影；I占据P之外100%的页面，只从同一原图背景转译，低信息处也必须由源背景的颜色、明暗、纹理或方向决定；M是规定的纸张与印刷材料，不是需要从原图匹配的场景对象，也不能成为第三块空白内容域。若上一版只有某一项失败，只修正该失败项，不重新设计已成功的主体、支撑关系、撕边或纸面印痕。`
     : "";
   const minimalGuardrail = adapter.id === "minimal-zine"
-    ? "\n输入图1是用户原照片，是摄影事实、主体身份、空间关系和原生色彩的唯一来源。输入图2只展示新版极简Zine的材料关系：一块完整未滤镜摄影P、独立非具象印刷场I、有效裸纸N、一种与I和撕缝/画布边缘同时发生关系的结构色。严禁复制参考图中的建筑、黑色反形、蓝色竖带、英文、具体位置或比例。P 必须是一块连续自然摄影，不能在其内部把天空、植物、建筑、水面或地面压成色块、灰色蒙版或另一种滤镜。I 只能在P之外或其物理下方新画；每个主母题至少经过两次结构变换，不能只是放大的鸟、叶、花、屋檐或树。N 至少约30%。优先根据照片选择贴边摄影加内部单撕缝，避免每次都做四边包围的浮动照片卡。主色必须穿过或反形于中性插画，并接触撕缝或画布边缘；孤立色块不合格。用户未明确要求文字时，输出中一个字符、数字和标点都不能出现。"
+    ? "\n输入图1是用户原照片，必须按方案中的 edit target 或 supporting insert 角色及 High/Medium 保留等级处理。输入图2只是 GitHub 原版风格参考：只学习暖白纸、大片留白、小视觉事件、短字、印刷颗粒和单一高纯强调色；严禁复制其中的玫瑰、RED STAYS、具体裁片形状、坐标或排版。整张画面70%至90%必须读作开放纸面，只能有一个占8%至25%的主要视觉事件；用户要求放大时让视觉簇靠近20%至25%，不能越界成为满版场景。主体身份、数量、比例、轮廓、标志性颜色与关键细节保持可辨，只允许方案明确列出的裁切、缩放、纸张表面和周围排版变化。只使用一种缩略图可见的高纯强调色；文字必须是一句短语或极少微字，不得形成商业广告层级。所有元素保持同一平面印刷扫描世界。"
     : "";
   const abstractGuardrail = adapter.id === "abstract-editorial"
     ? "\n输入图1是用户原照片，是主体、构图和颜色的唯一事实来源。输入图2是我们自制的结构关系样张，只借鉴‘一块真实摄影区与一块抽象关系区直接相接’的编辑逻辑，严禁复制样张中的建筑、屋檐、台阶、树木、固定上下版式或具体颜色。网页稍后会把 photoWindow 区域覆盖为用户原图像素，所以该区域必须保持与输入图1完全同构图、同位置、同尺度；你重点生成其余抽象区。抽象区必须把当前照片的三至六个关系转成清楚的平面结构，例如层级、轴线、间隔、方向、尺度或负空间，而不是复制一个简化版主体。严禁左右五五分、上下五五分、空蓝面板、渐变色块、几条孤立水平线、第二座建筑、第二个人物、矢量描摹、照片镜像、边框和样机。分界线必须顺着当前照片中的地平线、建筑层级、台阶起点、人物视线或运动方向，并让抽象形态在接缝处承接真实摄影中的结构。"
@@ -982,7 +984,7 @@ async function runGeneration(body: GenerateRequest, apiKey: string, adapter: typ
     }
     try {
       const styleReferences = adapter.id === "minimal-zine"
-          ? [await previewStyleReference("minimal-zine.jpeg")].filter((value): value is string => Boolean(value))
+          ? [await previewStyleReference("minimal-zine.png")].filter((value): value is string => Boolean(value))
         : adapter.id === "abstract-editorial"
           ? [await previewStyleReference("abstract-editorial.jpg")].filter((value): value is string => Boolean(value))
           : [];

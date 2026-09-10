@@ -9,7 +9,7 @@ test('minimal stages deliver image before review and never retry an uncertain im
     const body = JSON.parse(options.body);
     if (String(url).endsWith('/images/generations')) {
       images++;
-      assert.match(body.prompt, /一块连续自然摄影/);
+      assert.match(body.prompt, /70%至90%必须读作开放纸面/);
       assert.equal(body.image.length, 2);
       if (failImage) throw new TypeError('fetch failed');
       assert.equal(body.stream, true);
